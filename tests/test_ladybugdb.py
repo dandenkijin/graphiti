@@ -52,6 +52,51 @@ def test_database_connection():
         print(f"Database connection test failed: {e}")
         return False
 
+def test_search():
+    """Test search endpoint with local model"""
+    try:
+        response = requests.post(
+            f"{BASE_URL}/search",
+            json={"query": "What is LadybugDB?"},
+            headers={"Content-Type": "application/json"}
+        )
+        print(f"Search test: {response.status_code}")
+        if response.status_code == 200:
+            print(f"Response: {response.json()}")
+            return True
+        else:
+            print(f"Error response: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Search test failed: {e}")
+        return False
+
+def test_messages():
+    """Test messages endpoint for data ingestion"""
+    try:
+        test_data = {
+            "group_id": "test-group-123",  # Required field
+            "messages": [
+                {"role_type": "user", "role": "user", "content": "LadybugDB is a fork of Kuzu"},
+                {"role_type": "user", "role": "assistant", "content": "I understand that LadybugDB is a Graph database forked from Kuzu"}
+            ]
+        }
+        response = requests.post(
+            f"{BASE_URL}/messages",
+            json=test_data,
+            headers={"Content-Type": "application/json"}
+        )
+        print(f"Messages test: {response.status_code}")
+        if response.status_code == 200:
+            print(f"Response: {response.json()}")
+            return True
+        else:
+            print(f"Error response: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Messages test failed: {e}")
+        return False
+
 def test_data_persistence():
     """Test data persistence by checking database file"""
     try:
@@ -61,9 +106,14 @@ def test_data_persistence():
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:
-            print(f"Data persistence: PASS - Database files exist")
-            print(f"Files: {result.stdout}")
-            return True
+            output = result.stdout
+            if "graph.db" in output:
+                print(f"Data persistence: PASS - Database files exist")
+                print(f"Files: {output}")
+                return True
+            else:
+                print(f"Data persistence: FAIL - Database file not found")
+                return False
         else:
             print(f"Data persistence: FAIL - {result.stderr}")
             return False
@@ -84,6 +134,8 @@ def main():
         ("OpenAPI Specification", test_openapi),
         ("Database Connection", test_database_connection),
         ("Data Persistence", test_data_persistence),
+        ("Search Functionality", test_search),
+        ("Messages Ingestion", test_messages),
     ]
     
     results = []

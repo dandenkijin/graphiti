@@ -14,9 +14,13 @@ services:
         - docker_config
     ports:
       - "8000:8000"  # Graphiti API port
+    env_file:
+      - ../.env
     environment:
-      - GRAPH_DB_PATH=/data/graph.db  # LadybugDB with Kuzu backend path
+      - GRAPH_DB_PATH=${GRAPH_DB_PATH:-/data/graph.db}  # LadybugDB with Kuzu backend path
       - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_key_here}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://localhost:11434/v1}  # Local Ollama endpoint
+      - MODEL_NAME=${MODEL_NAME:-qwen3-embedding:8b}  # Local model name
       - PORT=8000
       - PYTHONUNBUFFERED=1
     volumes:

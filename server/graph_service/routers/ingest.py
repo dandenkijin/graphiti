@@ -92,8 +92,11 @@ async def delete_entity_edge(uuid: str, graphiti: ZepGraphitiDep):
 
 @router.delete('/group/{group_id}', status_code=status.HTTP_200_OK)
 async def delete_group(group_id: str, graphiti: ZepGraphitiDep):
-    await graphiti.delete_group(group_id)
-    return Result(message='Group deleted', success=True)
+    if group_id != graphiti.driver.db:
+        await graphiti.delete_group(group_id)
+        return Result(message='Group deleted', success=True)
+    else:
+        return Result(message='Cannot delete default database', success=False)
 
 
 @router.delete('/episode/{uuid}', status_code=status.HTTP_200_OK)

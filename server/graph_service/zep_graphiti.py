@@ -34,6 +34,9 @@ class LadybugDriver(GraphDriver):
         self.setup_schema()
         
         self.client = real_ladybug.AsyncConnection(self.db, max_concurrent_queries=max_concurrent_queries)
+        
+        # Add _database attribute for compatibility with ingest router
+        self._database = self.db
     
     def setup_schema(self):
         """Setup schema using LadybugDB connection"""
@@ -118,9 +121,87 @@ class ZepGraphiti(Graphiti):
         self.llm_client = llm_client
         self.driver = None  # Will be set by the calling functions
         self.embedder = None  # Will be set by the calling functions
+        
         # Initialize embedder if llm_client is available
         if llm_client:
             self.embedder = llm_client
+        
+        # Initialize other required attributes
+        self.store_raw_episode_content = True
+        self.max_coroutines = None
+        self.cross_encoder = None
+        self.tracer = None
+        
+        # Initialize clients and namespaces as None - will be set when driver is available
+        self.clients = None
+        self.nodes = None
+        self.edges = None
+    
+    def _initialize_clients_and_namespaces(self):
+        """Initialize clients and namespaces after driver is set"""
+        if self.driver is None:
+            raise ValueError("Driver must be set before initializing clients")
+        
+        # Create proper cross_encoder instance
+        from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
+        cross_encoder = OpenAIRerankerClient()
+        
+        # Create proper embedder instance
+        from graphiti_core.embedder import OpenAIEmbedder
+        # Check if using local model (no real API key needed)
+        if (hasattr(settings, 'openai_base_url') and 
+            settings.openai_base_url != 'https://api.openai.com/v1' and 
+            (not settings.openai_api_key or settings.openai_api_key == 'not-needed')):
+            embedder = OpenAIEmbedder(
+                api_key="not-needed",
+                base_url=settings.openai_base_url
+            )
+        else:
+            embedder = OpenAIEmbedder()
+        
+        # Initialize clients attribute
+        from graphiti_core.graphiti_types import GraphitiClients
+        self.clients = GraphitiClients(
+            driver=self.driver,
+            llm_client=self.llm_client,
+            embedder=embedder,
+            cross_encoder=cross_encoder,
+            tracer=tracer,
+        )
+        
+        # Initialize namespace API
+        from graphiti_core.namespaces import NodeNamespace, EdgeNamespace
+        self.nodes = NodeNamespace(self.driver, embedder)
+        self.edges = EdgeNamespace(self.driver, embedder)
+        
+        # Store instances for reference
+        self.embedder = embedder
+        self.cross_encoder = cross_encoder
+        self.tracer = tracer
+        
+        # Create proper tracer instance
+        from graphiti_core.tracer import create_tracer
+        tracer = create_tracer(None, 'graphiti')
+        
+        # Initialize clients attribute
+        from graphiti_core.graphiti_types import GraphitiClients
+        self.clients = GraphitiClients(
+            driver=self.driver,
+            llm_client=self.llm_client,
+            embedder=embedder,
+            cross_encoder=cross_encoder,
+            tracer=tracer,
+        )
+        
+        # Initialize namespace API
+        from graphiti_core.namespaces import NodeNamespace, EdgeNamespace
+        self.nodes = NodeNamespace(self.driver, embedder)
+        self.edges = EdgeNamespace(self.driver, embedder)
+        
+        # Store instances for reference
+        self.embedder = embedder
+        self.cross_encoder = cross_encoder
+        self.tracer = tracer
 
     async def save_entity_node(self, name: str, uuid: str, group_id: str, summary: str = ''):
         new_node = EntityNode(
@@ -197,7 +278,9 @@ async def get_graphiti(settings: ZepEnvDep):
             llm_client=llm_client,
         )
         client.driver = driver  # Override the driver with LadybugDriver
-        client.embedder = llm_client
+        
+        # Initialize clients and namespaces properly
+        client._initialize_clients_and_namespaces()
     else:
         # Use Neo4j driver (original behavior)
         client = ZepGraphiti(
@@ -234,7 +317,9 @@ async def initialize_graphiti(settings: ZepEnvDep):
             llm_client=llm_client,
         )
         client.driver = driver  # Override the driver with LadybugDriver
-        client.embedder = llm_client
+        
+        # Initialize clients and namespaces properly
+        client._initialize_clients_and_namespaces()
     else:
         # Use Neo4j driver (original behavior)
         client = ZepGraphiti(

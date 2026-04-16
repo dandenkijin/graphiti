@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Kuzu settings
     graph_db_path: str = Field("/data/graph.db")
 
-    model_config = SettingsConfigDict(env_file='.env', extra='ignore')
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
 
 @lru_cache
