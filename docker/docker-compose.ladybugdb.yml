@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  ladybugdb-graphiti:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ladybugdb
+      args:
+        GRAPHITI_VERSION: latest
+        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        VCS_REF: ${VCS_REF:-local}
+      # Add registry credentials if needed
+      secrets:
+        - docker_config
+    ports:
+      - "8000:8000"  # Graphiti API port
+    environment:
+      - GRAPH_DB_PATH=/data/graph.db  # LadybugDB with Kuzu backend path
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_key_here}
+      - PORT=8000
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ladybugdb_data:/data  # Persist LadybugDB data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthcheck')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+secrets:
+  docker_config:
+    file: ${HOME}/.docker/config.json
+
+volumes:
+  ladybugdb_data:
+    driver: local

@@ -1,0 +1,82 @@
+# syntax=docker/dockerfile:1.9
+FROM dhi.io/python:3.12-debian13-dev
+
+# Inherit build arguments for labels
+ARG GRAPHITI_VERSION
+ARG BUILD_DATE
+ARG VCS_REF
+
+# OCI image annotations (LadybugDB + Kuzu extras support)
+LABEL org.opencontainers.image.title="Graphiti FastAPI Server (LadybugDB)"
+LABEL org.opencontainers.image.description="FastAPI server for Graphiti temporal knowledge graphs with LadybugDB backend"
+LABEL org.opencontainers.image.version="${GRAPHITI_VERSION}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.vendor="Zep AI"
+LABEL org.opencontainers.image.source="https://github.com/getzep/graphiti"
+LABEL org.opencontainers.image.documentation="https://github.com/getzep/graphiti/tree/main/server"
+LABEL io.graphiti.core.version="${GRAPHITI_VERSION}"
+LABEL io.graphiti.db.backend="kuzu"
+
+# Install uv using the installer script
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    gcc \
+    gzip \
+    tar \
+    adduser \
+    && rm -rf /var/lib/apt/lists/*
+
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
+RUN sh /uv-installer.sh && rm /uv-installer.sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Configure uv for runtime
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
+
+# Create non-root user
+RUN groupadd -r app && useradd -r -d /app -g app app
+
+# Set up the server application first
+WORKDIR /app
+COPY ./server/pyproject.toml ./server/README.md ./server/uv.lock ./
+COPY ./server/graph_service ./graph_service
+
+# Install server dependencies first, then add real_ladybug to the virtual environment
+RUN --mount=type=cache,target=/root/.cache/uv \
+    echo "Installing server dependencies..." && \
+    uv sync --frozen --no-dev && \
+    echo "Adding real_ladybug to virtual environment..." && \
+    uv pip install real_ladybug && \
+    echo "real_ladybug package installed, checking what was installed..." && \
+    uv pip list | grep -i ladybug && \
+    echo "Testing import..." && \
+    uv run python -c "import real_ladybug; print('real_ladybug imported successfully'); print('Available attributes:', [attr for attr in dir(real_ladybug) if not attr.startswith('_')])" && \
+    if [ -n "$GRAPHITI_VERSION" ] && [ "$GRAPHITI_VERSION" != "latest" ]; then \
+        uv pip install --upgrade "graphiti-core==$GRAPHITI_VERSION"; \
+    else \
+        uv pip install --upgrade "graphiti-core"; \
+    fi
+
+# Change ownership to app user and create data directory with proper permissions
+RUN chown -R app:app /app && \
+    mkdir -p /data && \
+    chown app:app /data
+
+# Set environment variables (including LadybugDB path)
+ENV PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH" \
+    GRAPH_DB_PATH=/data/graph.db
+
+# Switch to non-root user
+USER app
+
+# Set port
+ENV PORT=8000
+EXPOSE $PORT
+
+# Use uv run for execution
+CMD ["uv", "run", "uvicorn", "graph_service.main:app", "--host", "0.0.0.0", "--port", "8000"]

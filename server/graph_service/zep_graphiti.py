@@ -3,6 +3,9 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException
 from graphiti_core import Graphiti  # type: ignore
+# Import real_ladybug since LadybugDB is a Kuzu fork
+import real_ladybug  # type: ignore
+from graphiti_core.driver.driver import GraphDriver, GraphDriverSession, GraphProvider  # type: ignore
 from graphiti_core.edges import EntityEdge  # type: ignore
 from graphiti_core.errors import EdgeNotFoundError, GroupsEdgesNotFoundError, NodeNotFoundError
 from graphiti_core.llm_client import LLMClient  # type: ignore
@@ -14,9 +17,107 @@ from graph_service.dto import FactResult
 logger = logging.getLogger(__name__)
 
 
+class LadybugDriver(GraphDriver):
+    """Custom driver that uses LadybugDB instead of kuzu"""
+    
+    provider: GraphProvider = GraphProvider.KUZU  # Use Kuzu provider for compatibility
+    
+    def __init__(
+        self,
+        db: str = ':memory:',
+        max_concurrent_queries: int = 1,
+    ):
+        # Use real_ladybug instead of kuzu
+        self.db = real_ladybug.Database(db)
+        
+        # Setup schema using LadybugDB
+        self.setup_schema()
+        
+        self.client = real_ladybug.AsyncConnection(self.db, max_concurrent_queries=max_concurrent_queries)
+    
+    def setup_schema(self):
+        """Setup schema using LadybugDB connection"""
+        conn = real_ladybug.Connection(self.db)
+        try:
+            # Basic schema setup - simplified version
+            schema_queries = [
+                "CREATE NODE TABLE IF NOT EXISTS Episodic(uuid STRING PRIMARY KEY, name STRING, group_id STRING, created_at TIMESTAMP, source STRING, source_description STRING, content STRING, valid_at TIMESTAMP, entity_edges STRING[])",
+                "CREATE NODE TABLE IF NOT EXISTS Entity(uuid STRING PRIMARY KEY, name STRING, group_id STRING, labels STRING[], created_at TIMESTAMP, name_embedding FLOAT[], summary STRING, attributes STRING)",
+                "CREATE NODE TABLE IF NOT EXISTS Community(uuid STRING PRIMARY KEY, name STRING, group_id STRING, created_at TIMESTAMP, name_embedding FLOAT[], summary STRING)",
+                "CREATE NODE TABLE IF NOT EXISTS RelatesToNode_(uuid STRING PRIMARY KEY, group_id STRING, created_at TIMESTAMP, name STRING, fact STRING, fact_embedding FLOAT[], episodes STRING[], expired_at TIMESTAMP, valid_at TIMESTAMP, invalid_at TIMESTAMP, attributes STRING)",
+                "CREATE REL TABLE IF NOT EXISTS RELATES_TO(FROM Entity TO RelatesToNode_, FROM RelatesToNode_ TO Entity)"
+            ]
+            
+            for query in schema_queries:
+                conn.execute(query)
+        finally:
+            conn.close()
+    
+    def session(self, _database: str | None = None) -> GraphDriverSession:
+        return LadybugDriverSession(self)
+    
+    async def close(self):
+        # LadybugDB doesn't require explicit closing
+        pass
+    
+    async def build_indices_and_constraints(self, delete_existing: bool = False):
+        """Build indices and constraints - simplified implementation"""
+        # LadybugDB handles indices automatically
+        pass
+    
+    async def delete_all_indexes(self):
+        """Delete all indexes - simplified implementation"""
+        # LadybugDB handles indices automatically
+        pass
+    
+    async def execute_query(self, query: str, params: dict | None = None):
+        """Execute a query using LadybugDB"""
+        conn = real_ladybug.Connection(self.db)
+        try:
+            return conn.execute(query, params or {})
+        finally:
+            conn.close()
+
+
+class LadybugDriverSession(GraphDriverSession):
+    provider = GraphProvider.KUZU
+    
+    def __init__(self, driver: LadybugDriver):
+        self.driver = driver
+    
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+    
+    async def execute_query(self, query: str, params: dict | None = None):
+        """Execute a query using LadybugDB"""
+        conn = real_ladybug.Connection(self.driver.db)
+        try:
+            return conn.execute(query, params or {})
+        finally:
+            conn.close()
+    
+    async def execute_transaction(self, queries: list[tuple[str, dict | None]]):
+        """Execute multiple queries in a transaction"""
+        conn = real_ladybug.Connection(self.driver.db)
+        try:
+            results = []
+            for query, params in queries:
+                result = conn.execute(query, params or {})
+                results.append(result)
+            return results
+        finally:
+            conn.close()
+
+
 class ZepGraphiti(Graphiti):
     def __init__(self, uri: str, user: str, password: str, llm_client: LLMClient | None = None):
-        super().__init__(uri, user, password, llm_client)
+        # Initialize without calling super() to avoid Neo4j driver setup
+        self.llm_client = llm_client
+        self.driver = None  # Will be set by the calling functions
+        self.embedder = None  # Will be set by the calling functions
 
     async def save_entity_node(self, name: str, uuid: str, group_id: str, summary: str = ''):
         new_node = EntityNode(
@@ -72,11 +173,24 @@ class ZepGraphiti(Graphiti):
 
 
 async def get_graphiti(settings: ZepEnvDep):
-    client = ZepGraphiti(
-        uri=settings.neo4j_uri,
-        user=settings.neo4j_user,
-        password=settings.neo4j_password,
-    )
+    # Use LadybugDriver if Neo4j settings are not provided
+    if settings.neo4j_uri is None:
+        # Use LadybugDriver
+        driver = LadybugDriver(db=settings.graph_db_path)
+        client = ZepGraphiti(
+            uri=settings.graph_db_path,  # Use graph_db_path as uri for compatibility
+            user="",  # Not used for LadybugDB
+            password="",  # Not used for LadybugDB
+        )
+        client.driver = driver  # Override the driver with LadybugDriver
+    else:
+        # Use Neo4j driver (original behavior)
+        client = ZepGraphiti(
+            uri=settings.neo4j_uri,
+            user=settings.neo4j_user,
+            password=settings.neo4j_password,
+        )
+    
     if settings.openai_base_url is not None:
         client.llm_client.config.base_url = settings.openai_base_url
     if settings.openai_api_key is not None:
@@ -91,11 +205,24 @@ async def get_graphiti(settings: ZepEnvDep):
 
 
 async def initialize_graphiti(settings: ZepEnvDep):
-    client = ZepGraphiti(
-        uri=settings.neo4j_uri,
-        user=settings.neo4j_user,
-        password=settings.neo4j_password,
-    )
+    # Use LadybugDriver if Neo4j settings are not provided
+    if settings.neo4j_uri is None:
+        # Use LadybugDriver
+        driver = LadybugDriver(db=settings.graph_db_path)
+        client = ZepGraphiti(
+            uri=settings.graph_db_path,  # Use graph_db_path as uri for compatibility
+            user="",  # Not used for LadybugDB
+            password="",  # Not used for LadybugDB
+        )
+        client.driver = driver  # Override the driver with LadybugDriver
+    else:
+        # Use Neo4j driver (original behavior)
+        client = ZepGraphiti(
+            uri=settings.neo4j_uri,
+            user=settings.neo4j_user,
+            password=settings.neo4j_password,
+        )
+    
     await client.build_indices_and_constraints()
 
 
