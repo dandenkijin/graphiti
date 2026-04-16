@@ -118,6 +118,9 @@ class ZepGraphiti(Graphiti):
         self.llm_client = llm_client
         self.driver = None  # Will be set by the calling functions
         self.embedder = None  # Will be set by the calling functions
+        # Initialize embedder if llm_client is available
+        if llm_client:
+            self.embedder = llm_client
 
     async def save_entity_node(self, name: str, uuid: str, group_id: str, summary: str = ''):
         new_node = EntityNode(
@@ -177,12 +180,24 @@ async def get_graphiti(settings: ZepEnvDep):
     if settings.neo4j_uri is None:
         # Use LadybugDriver
         driver = LadybugDriver(db=settings.graph_db_path)
+        
+        # Create LLM client
+        from graphiti_core.llm_client import OpenAIClient, LLMConfig
+        llm_config = LLMConfig(
+            model=settings.model_name or "gpt-3.5-turbo",
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url
+        )
+        llm_client = OpenAIClient(llm_config)
+        
         client = ZepGraphiti(
             uri=settings.graph_db_path,  # Use graph_db_path as uri for compatibility
             user="",  # Not used for LadybugDB
             password="",  # Not used for LadybugDB
+            llm_client=llm_client,
         )
         client.driver = driver  # Override the driver with LadybugDriver
+        client.embedder = llm_client
     else:
         # Use Neo4j driver (original behavior)
         client = ZepGraphiti(
@@ -190,13 +205,6 @@ async def get_graphiti(settings: ZepEnvDep):
             user=settings.neo4j_user,
             password=settings.neo4j_password,
         )
-    
-    if settings.openai_base_url is not None:
-        client.llm_client.config.base_url = settings.openai_base_url
-    if settings.openai_api_key is not None:
-        client.llm_client.config.api_key = settings.openai_api_key
-    if settings.model_name is not None:
-        client.llm_client.model = settings.model_name
 
     try:
         yield client
@@ -209,12 +217,24 @@ async def initialize_graphiti(settings: ZepEnvDep):
     if settings.neo4j_uri is None:
         # Use LadybugDriver
         driver = LadybugDriver(db=settings.graph_db_path)
+        
+        # Create LLM client
+        from graphiti_core.llm_client import OpenAIClient, LLMConfig
+        llm_config = LLMConfig(
+            model=settings.model_name or "gpt-3.5-turbo",
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url
+        )
+        llm_client = OpenAIClient(llm_config)
+        
         client = ZepGraphiti(
             uri=settings.graph_db_path,  # Use graph_db_path as uri for compatibility
             user="",  # Not used for LadybugDB
             password="",  # Not used for LadybugDB
+            llm_client=llm_client,
         )
         client.driver = driver  # Override the driver with LadybugDriver
+        client.embedder = llm_client
     else:
         # Use Neo4j driver (original behavior)
         client = ZepGraphiti(
