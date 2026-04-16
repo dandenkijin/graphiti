@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Advanced test script for LadybugDB setup with proper API testing
+Test script for LadybugDB setup
 """
 
 import requests
