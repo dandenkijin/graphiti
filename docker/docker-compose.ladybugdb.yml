@@ -19,7 +19,9 @@ services:
       - GRAPH_DB_PATH=${GRAPH_DB_PATH:-/data/graph.db}  # LadybugDB with Kuzu backend path
       - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_key_here}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://localhost:11434/v1}  # Local Ollama endpoint
-      - MODEL_NAME=${MODEL_NAME:-qwen3-embedding:8b}  # Local model name
+      - MODEL_NAME=huihui_ai/qwen3.5-abliterated:9b  # LLM model name (forced)
+      - EMBEDDING_MODEL_NAME=qwen3-embedding:8b  # Embedding model name (forced)
+      - OLLAMA_SCHEMA=${OLLAMA_SCHEMA:-true}  # Ollama schema flag
       - PORT=8000
       - PYTHONUNBUFFERED=1
     volumes:

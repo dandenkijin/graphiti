@@ -1,0 +1,6 @@
+version: '3.8'
+
+services:
+  ladybugdb-graphiti:
+    healthcheck:
+      disable: true

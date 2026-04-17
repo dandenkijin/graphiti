@@ -69,8 +69,16 @@ class OpenAIEmbedder(EmbedderClient):
                 prompt = str(input_data)
             
             async with httpx.AsyncClient() as client:
+                # Check if using Ollama schema and adjust endpoint accordingly
+                if os.getenv('OLLAMA_SCHEMA', '').lower() == 'true':
+                    # Use Ollama's native API endpoint without /v1 prefix
+                    endpoint = f"{self.config.base_url.replace('/v1', '')}/api/embeddings"
+                else:
+                    # Use standard OpenAI endpoint with /v1 prefix
+                    endpoint = f"{self.config.base_url}/api/embeddings"
+                
                 response = await client.post(
-                    f"{self.config.base_url}/api/embeddings",
+                    endpoint,
                     json={
                         "model": self.config.embedding_model,
                         "prompt": prompt

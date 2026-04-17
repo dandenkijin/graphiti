@@ -65,7 +65,7 @@ class ZepGraphiti(Graphiti):
             config = OpenAIEmbedderConfig(
                 api_key="not-needed",
                 base_url=settings.openai_base_url,
-                embedding_model=settings.model_name
+                embedding_model=settings.embedding_model_name
             )
             embedder = OpenAIEmbedder(config)
         else:

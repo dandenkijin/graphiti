@@ -73,30 +73,45 @@ class OpenAIClient(BaseOpenAIClient):
         verbosity: str | None = None,
     ):
         """Create a structured completion using OpenAI's beta parse API."""
-        # Reasoning models (gpt-5 family) don't support temperature
-        is_reasoning_model = (
-            model.startswith('gpt-5') or model.startswith('o1') or model.startswith('o3')
-        )
+        # Check if using Ollama (which doesn't support responses.parse)
+        import os
+        if os.getenv('OLLAMA_SCHEMA', '').lower() == 'true':
+            # Use regular chat.completions for Ollama
+            return await self._create_completion(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_model=response_model,
+                reasoning=reasoning,
+                verbosity=verbosity,
+            )
+        else:
+            # Use responses.parse for OpenAI reasoning models
+            # Reasoning models (gpt-5 family) don't support temperature
+            is_reasoning_model = (
+                model.startswith('gpt-5') or model.startswith('o1') or model.startswith('o3')
+            )
+            
+            request_kwargs = {
+                'model': model,
+                'input': messages,  # type: ignore
+                'max_output_tokens': max_tokens,
+                'text_format': response_model,  # type: ignore
+            }
 
-        request_kwargs = {
-            'model': model,
-            'input': messages,  # type: ignore
-            'max_output_tokens': max_tokens,
-            'text_format': response_model,  # type: ignore
-        }
+            temperature_value = temperature if not is_reasoning_model else None
+            if temperature_value is not None:
+                request_kwargs['temperature'] = temperature_value
 
-        temperature_value = temperature if not is_reasoning_model else None
-        if temperature_value is not None:
-            request_kwargs['temperature'] = temperature_value
+            # Only include reasoning and verbosity parameters for reasoning models
+            if is_reasoning_model and reasoning is not None:
+                request_kwargs['reasoning'] = {'effort': reasoning}  # type: ignore
 
-        # Only include reasoning and verbosity parameters for reasoning models
-        if is_reasoning_model and reasoning is not None:
-            request_kwargs['reasoning'] = {'effort': reasoning}  # type: ignore
+            if is_reasoning_model and verbosity is not None:
+                request_kwargs['text'] = {'verbosity': verbosity}  # type: ignore
 
-        if is_reasoning_model and verbosity is not None:
-            request_kwargs['text'] = {'verbosity': verbosity}  # type: ignore
-
-        response = await self.client.responses.parse(**request_kwargs)
+            response = await self.client.responses.parse(**request_kwargs)
 
         return response
 
@@ -111,15 +126,26 @@ class OpenAIClient(BaseOpenAIClient):
         verbosity: str | None = None,
     ):
         """Create a regular completion with JSON format."""
+        # Debug logging to trace model parameter
+        print(f"DEBUG: _create_completion called with model={model}")
+        
         # Reasoning models (gpt-5 family) don't support temperature
         is_reasoning_model = (
             model.startswith('gpt-5') or model.startswith('o1') or model.startswith('o3')
         )
+        print(f"DEBUG: Chat completion with model={model}, is_reasoning={is_reasoning_model}")
 
-        return await self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature if not is_reasoning_model else None,
-            max_tokens=max_tokens,
-            response_format={'type': 'json_object'},
-        )
+        print(f"DEBUG: Making chat.completions call to {self.client.base_url} with model={model}")
+        try:
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature if not is_reasoning_model else None,
+                max_tokens=max_tokens,
+                response_format={'type': 'json_object'},
+            )
+            print(f"DEBUG: Chat completion successful")
+            return response
+        except Exception as e:
+            print(f"DEBUG: Chat completion failed: {e}")
+            raise

@@ -50,7 +50,7 @@ COPY ./pyproject.toml ./pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev && \
     echo "Adding real_ladybug to virtual environment..." && \
-    uv pip install real_ladybug && \
+    uv pip install --upgrade real_ladybug && \
     echo "Installing local graphiti-core with ladybug support..." && \
     uv pip install --force-reinstall -e . && \
     echo "Verifying uvicorn is installed..." && \
