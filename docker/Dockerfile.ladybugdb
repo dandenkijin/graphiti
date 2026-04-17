@@ -46,14 +46,12 @@ COPY ./server/pyproject.toml ./server/README.md ./server/uv.lock ./
 COPY ./server/graph_service ./graph_service
 COPY ./graphiti_core ./graphiti_core
 COPY ./pyproject.toml ./pyproject.toml
-# Install server dependencies (without graphiti-core from lockfile)
-# Then install graphiti-core from PyPI at the desired version
-# This prevents the stale lockfile from pinning an old graphiti-core version
+# Install server dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev && \
     echo "Adding real_ladybug to virtual environment..." && \
     uv pip install real_ladybug && \
-    echo "Installing local graphiti-core with Ollama support..." && \
+    echo "Installing local graphiti-core with ladybug support..." && \
     uv pip install --force-reinstall -e . && \
     echo "Verifying uvicorn is installed..." && \
     uv run uvicorn --version

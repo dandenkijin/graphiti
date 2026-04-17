@@ -226,6 +226,17 @@ pip install graphiti-core[neptune]
 uv add graphiti-core[neptune]
 ```
 
+If you plan to use LadybugDB as your graph database backend, install with the LadybugDB extra:
+
+```bash
+pip install graphiti-core[ladybug]
+
+# or with uv
+uv add graphiti-core[ladybug]
+```
+
+> **Note**: LadybugDB provides an embedded graph database with full-text search capabilities, ideal for local development and regulated environments.
+
 ### You can also install optional LLM providers as extras:
 
 ```bash
@@ -246,6 +257,9 @@ pip install graphiti-core[falkordb,anthropic,google-genai]
 
 # Install with Amazon Neptune
 pip install graphiti-core[neptune]
+
+# Install with LadybugDB and LLM providers
+pip install graphiti-core[ladybug,anthropic,groq]
 ```
 
 ## Default to Low Concurrency; LLM Provider 429 Rate Limit Errors
