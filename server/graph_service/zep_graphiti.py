@@ -42,6 +42,14 @@ class LadybugDriver(GraphDriver):
         """Setup schema using LadybugDB connection"""
         conn = real_ladybug.Connection(self.db)
         try:
+            # Install and load FTS extension for full text search
+            try:
+                conn.execute("INSTALL FTS")
+                conn.execute("LOAD EXTENSION FTS")
+            except Exception:
+                # Extension might already be installed
+                pass
+            
             # Basic schema setup - simplified version
             schema_queries = [
                 "CREATE NODE TABLE IF NOT EXISTS Episodic(uuid STRING PRIMARY KEY, name STRING, group_id STRING, created_at TIMESTAMP, source STRING, source_description STRING, content STRING, valid_at TIMESTAMP, entity_edges STRING[])",
@@ -53,6 +61,21 @@ class LadybugDriver(GraphDriver):
             
             for query in schema_queries:
                 conn.execute(query)
+            
+            # Create required indexes for search functionality
+            index_queries = [
+                # FTS indexes for full text search using LadybugDB's CREATE_FTS_INDEX function
+                "CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact', ['name', 'fact']);",
+                "CALL CREATE_FTS_INDEX('Entity', 'entity_name_fts', ['name']);",
+                "CALL CREATE_FTS_INDEX('Episodic', 'episodic_content_fts', ['content', 'name']);",
+            ]
+            
+            for query in index_queries:
+                try:
+                    conn.execute(query)
+                except Exception as e:
+                    # Index might already exist or have issues
+                    print(f"Warning: Failed to create index: {e}")
         finally:
             conn.close()
     
@@ -73,11 +96,30 @@ class LadybugDriver(GraphDriver):
         # LadybugDB handles indices automatically
         pass
     
-    async def execute_query(self, query: str, params: dict | None = None):
+    async def execute_query(self, *args, **kwargs):
         """Execute a query using LadybugDB"""
         conn = real_ladybug.Connection(self.db)
         try:
-            return conn.execute(query, params or {})
+            # Handle variable arguments for compatibility with search code
+            if args:
+                # First argument is the query string
+                query = args[0]
+                # Keep all kwargs as parameters (including 'query' if present)
+                if kwargs:
+                    result = conn.execute(query, kwargs)
+                else:
+                    result = conn.execute(query)
+            else:
+                # No positional arguments, use kwargs
+                if 'query' in kwargs:
+                    query = kwargs.pop('query')
+                    if kwargs:
+                        result = conn.execute(query, kwargs)
+                    else:
+                        result = conn.execute(query)
+                else:
+                    raise ValueError("No query provided")
+            return result, None, None
         finally:
             conn.close()
 
@@ -94,11 +136,30 @@ class LadybugDriverSession(GraphDriverSession):
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
     
-    async def execute_query(self, query: str, params: dict | None = None):
+    async def execute_query(self, *args, **kwargs):
         """Execute a query using LadybugDB"""
         conn = real_ladybug.Connection(self.driver.db)
         try:
-            return conn.execute(query, params or {})
+            # Handle variable arguments for compatibility with search code
+            if args:
+                # First argument is the query string
+                query = args[0]
+                # Keep all kwargs as parameters (including 'query' if present)
+                if kwargs:
+                    result = conn.execute(query, kwargs)
+                else:
+                    result = conn.execute(query)
+            else:
+                # No positional arguments, use kwargs
+                if 'query' in kwargs:
+                    query = kwargs.pop('query')
+                    if kwargs:
+                        result = conn.execute(query, kwargs)
+                    else:
+                        result = conn.execute(query)
+                else:
+                    raise ValueError("No query provided")
+            return result, None, None
         finally:
             conn.close()
     
@@ -137,7 +198,7 @@ class ZepGraphiti(Graphiti):
         self.nodes = None
         self.edges = None
     
-    def _initialize_clients_and_namespaces(self):
+    def _initialize_clients_and_namespaces(self, settings):
         """Initialize clients and namespaces after driver is set"""
         if self.driver is None:
             raise ValueError("Driver must be set before initializing clients")
@@ -147,37 +208,22 @@ class ZepGraphiti(Graphiti):
         cross_encoder = OpenAIRerankerClient()
         
         # Create proper embedder instance
-        from graphiti_core.embedder import OpenAIEmbedder
-        # Check if using local model (no real API key needed)
-        if (hasattr(settings, 'openai_base_url') and 
-            settings.openai_base_url != 'https://api.openai.com/v1' and 
-            (not settings.openai_api_key or settings.openai_api_key == 'not-needed')):
-            embedder = OpenAIEmbedder(
+        from graphiti_core.embedder import OpenAIEmbedder, OpenAIEmbedderConfig
+        # Check if using local model (Ollama or other local model)
+        is_local_model = (
+            hasattr(settings, 'openai_base_url') and 
+            settings.openai_base_url and 
+            settings.openai_base_url != 'https://api.openai.com/v1'
+        )
+        if is_local_model:
+            config = OpenAIEmbedderConfig(
                 api_key="not-needed",
-                base_url=settings.openai_base_url
+                base_url=settings.openai_base_url,
+                embedding_model=settings.model_name
             )
+            embedder = OpenAIEmbedder(config)
         else:
             embedder = OpenAIEmbedder()
-        
-        # Initialize clients attribute
-        from graphiti_core.graphiti_types import GraphitiClients
-        self.clients = GraphitiClients(
-            driver=self.driver,
-            llm_client=self.llm_client,
-            embedder=embedder,
-            cross_encoder=cross_encoder,
-            tracer=tracer,
-        )
-        
-        # Initialize namespace API
-        from graphiti_core.namespaces import NodeNamespace, EdgeNamespace
-        self.nodes = NodeNamespace(self.driver, embedder)
-        self.edges = EdgeNamespace(self.driver, embedder)
-        
-        # Store instances for reference
-        self.embedder = embedder
-        self.cross_encoder = cross_encoder
-        self.tracer = tracer
         
         # Create proper tracer instance
         from graphiti_core.tracer import create_tracer
@@ -256,7 +302,8 @@ class ZepGraphiti(Graphiti):
             raise HTTPException(status_code=404, detail=e.message) from e
 
 
-async def get_graphiti(settings: ZepEnvDep):
+def _create_graphiti_client(settings: ZepEnvDep) -> ZepGraphiti:
+    """Shared helper function to create and configure ZepGraphiti client"""
     # Use LadybugDriver if Neo4j settings are not provided
     if settings.neo4j_uri is None:
         # Use LadybugDriver
@@ -280,46 +327,7 @@ async def get_graphiti(settings: ZepEnvDep):
         client.driver = driver  # Override the driver with LadybugDriver
         
         # Initialize clients and namespaces properly
-        client._initialize_clients_and_namespaces()
-    else:
-        # Use Neo4j driver (original behavior)
-        client = ZepGraphiti(
-            uri=settings.neo4j_uri,
-            user=settings.neo4j_user,
-            password=settings.neo4j_password,
-        )
-
-    try:
-        yield client
-    finally:
-        await client.close()
-
-
-async def initialize_graphiti(settings: ZepEnvDep):
-    # Use LadybugDriver if Neo4j settings are not provided
-    if settings.neo4j_uri is None:
-        # Use LadybugDriver
-        driver = LadybugDriver(db=settings.graph_db_path)
-        
-        # Create LLM client
-        from graphiti_core.llm_client import OpenAIClient, LLMConfig
-        llm_config = LLMConfig(
-            model=settings.model_name or "gpt-3.5-turbo",
-            api_key=settings.openai_api_key,
-            base_url=settings.openai_base_url
-        )
-        llm_client = OpenAIClient(llm_config)
-        
-        client = ZepGraphiti(
-            uri=settings.graph_db_path,  # Use graph_db_path as uri for compatibility
-            user="",  # Not used for LadybugDB
-            password="",  # Not used for LadybugDB
-            llm_client=llm_client,
-        )
-        client.driver = driver  # Override the driver with LadybugDriver
-        
-        # Initialize clients and namespaces properly
-        client._initialize_clients_and_namespaces()
+        client._initialize_clients_and_namespaces(settings)
     else:
         # Use Neo4j driver (original behavior)
         client = ZepGraphiti(
@@ -328,6 +336,20 @@ async def initialize_graphiti(settings: ZepEnvDep):
             password=settings.neo4j_password,
         )
     
+    return client
+
+
+async def get_graphiti(settings: ZepEnvDep):
+    client = _create_graphiti_client(settings)
+    
+    try:
+        yield client
+    finally:
+        await client.close()
+
+
+async def initialize_graphiti(settings: ZepEnvDep):
+    client = _create_graphiti_client(settings)
     await client.build_indices_and_constraints()
 
 

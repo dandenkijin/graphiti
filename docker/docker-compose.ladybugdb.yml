@@ -12,8 +12,7 @@ services:
       # Add registry credentials if needed
       secrets:
         - docker_config
-    ports:
-      - "8000:8000"  # Graphiti API port
+    network_mode: host  # Use host network to access localhost services
     env_file:
       - ../.env
     environment:
