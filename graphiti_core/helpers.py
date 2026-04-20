@@ -23,9 +23,14 @@ from typing import Any
 
 import numpy as np
 from dotenv import load_dotenv
-from neo4j import time as neo4j_time
 from numpy._typing import NDArray
 from pydantic import BaseModel
+
+# Conditional import for neo4j time to avoid dependency issues
+try:
+    from neo4j import time as neo4j_time
+except ImportError:
+    neo4j_time = None
 
 from graphiti_core.driver.driver import GraphProvider
 from graphiti_core.errors import GroupIdValidationError, NodeLabelValidationError
@@ -55,12 +60,18 @@ CHUNK_MIN_TOKENS = int(os.getenv('CHUNK_MIN_TOKENS', 1000))
 CHUNK_DENSITY_THRESHOLD = float(os.getenv('CHUNK_DENSITY_THRESHOLD', 0.15))
 
 
-def parse_db_date(input_date: neo4j_time.DateTime | str | None) -> datetime | None:
-    if isinstance(input_date, neo4j_time.DateTime):
+def parse_db_date(input_date: Any) -> datetime | None:
+    # Handle Neo4j DateTime objects if neo4j is available
+    if neo4j_time is not None and hasattr(neo4j_time, 'DateTime') and isinstance(input_date, neo4j_time.DateTime):
         return input_date.to_native()
 
+    # Handle string dates
     if isinstance(input_date, str):
         return datetime.fromisoformat(input_date)
+
+    # Handle datetime objects directly
+    if isinstance(input_date, datetime):
+        return input_date
 
     return input_date
 

@@ -26,14 +26,12 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 def cleanup_model(model_name):
     """Unload model to prevent CPU spinning"""
     try:
-        response = requests.delete(f"{OLLAMA_BASE_URL}/api/generate", json={"model": model_name})
-        # Try alternative endpoint for unloading
-        if response.status_code != 200:
-            response = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json={
-                "model": model_name,
-                "prompt": "",
-                "keep_alive": "0s"
-            })
+        # Use correct Ollama endpoint for model management
+        response = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json={
+            "model": model_name,
+            "prompt": "",
+            "keep_alive": "0s"
+        })
         print(f"Model cleanup status: {response.status_code}")
     except Exception as e:
         print(f"Model cleanup failed: {e}")

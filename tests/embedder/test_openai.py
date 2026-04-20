@@ -68,7 +68,7 @@ def mock_openai_client() -> Generator[Any, Any, None]:
 @pytest.fixture
 def openai_embedder(mock_openai_client: Any) -> OpenAIEmbedder:
     """Create an OpenAIEmbedder with a mocked client."""
-    config = OpenAIEmbedderConfig(api_key='test_api_key')
+    config = OpenAIEmbedderConfig(api_key='test_api_key', base_url=None)
     client = OpenAIEmbedder(config=config)
     client.client = mock_openai_client
     return client

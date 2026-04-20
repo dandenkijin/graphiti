@@ -532,6 +532,66 @@ The Gemini reranker uses the `gemini-2.5-flash-lite` model by default, which is 
 cost-effective and low-latency classification tasks. It uses the same boolean classification approach as the OpenAI
 reranker, leveraging Gemini's log probabilities feature to rank passage relevance.
 
+## Using BGE Reranker
+
+Graphiti supports the BGE (BAAI General Embedding) reranker for improved passage ranking. The BGE reranker provides better relevance ranking compared to simple similarity search.
+
+```python
+from graphiti_core import Graphiti
+from graphiti_core.cross_encoder.bge_reranker_client import BGERerankerClient
+
+# Initialize Graphiti with BGE reranker (uses default model)
+graphiti = Graphiti(
+    uri="bolt://localhost:7687",
+    user="neo4j",
+    password="password",
+    cross_encoder=BGERerankerClient()
+)
+
+# Or specify a custom reranker model
+graphiti = Graphiti(
+    uri="bolt://localhost:7687",
+    user="neo4j",
+    password="password",
+    cross_encoder=BGERerankerClient(reranker_model="BAAI/bge-reranker-large")
+)
+```
+
+**Environment Variables:**
+
+You can configure the reranker model using environment variables:
+
+```bash
+# Set the default reranker model
+export RERANKER_MODEL="BAAI/bge-reranker-v2-m3"
+
+# Available models include:
+# - BAAI/bge-reranker-v2-m3 (default, ~1.1GB)
+# - BAAI/bge-reranker-large (~1.3GB, better performance)
+# - BAAI/bge-reranker-base (~400MB, faster)
+```
+
+**Note:** The BGE reranker requires the `sentence-transformers` package and will automatically download the model on first use. For faster startup, you can pre-download the model:
+
+```bash
+# Download default model
+python -c "from sentence_transformers import CrossEncoder; CrossEncoder('BAAI/bge-reranker-v2-m3')"
+
+# Or download a specific model
+python -c "from sentence_transformers import CrossEncoder; CrossEncoder('BAAI/bge-reranker-large')"
+```
+
+## Database Backend Support
+
+Graphiti supports multiple database backends:
+
+- **Neo4j** (Recommended) - Full-featured graph database with comprehensive support
+- **FalkorDB** - Redis-compatible graph database, good for simpler use cases
+- **LadybugDB** - Kuzu fork for local graph operations (experimental)
+- **Neptune** - AWS managed graph database service
+
+**Deprecated:** Kuzu support has been deprecated. Please migrate to LadybugDB or other supported backends.
+
 ## Using Graphiti with Ollama (Local LLM)
 
 Graphiti supports Ollama for running local LLMs and embedding models via Ollama's OpenAI-compatible API. This is ideal

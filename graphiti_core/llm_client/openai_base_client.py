@@ -20,8 +20,16 @@ import typing
 from abc import abstractmethod
 from typing import Any, ClassVar
 
-import openai
-from openai.types.chat import ChatCompletionMessageParam
+# Conditional import for OpenAI to avoid timeout during local mode
+try:
+    import openai
+    from openai.types.chat import ChatCompletionMessageParam
+    HAS_OPENAI = True
+except ImportError:
+    openai = None
+    ChatCompletionMessageParam = None
+    HAS_OPENAI = False
+
 from pydantic import BaseModel
 
 from ..prompts.models import Message

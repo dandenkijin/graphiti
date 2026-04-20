@@ -15,6 +15,7 @@ limitations under the License.
 """
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
@@ -25,6 +26,9 @@ from ..helpers import semaphore_gather
 from ..llm_client import LLMConfig, OpenAIClient, RateLimitError
 from ..prompts import Message
 from .client import CrossEncoderClient
+
+# Check for local mode
+LOCAL_MODE = os.getenv('GRAPHITI_LOCAL_MODE', 'false').lower() in ('true', '1', 'yes')
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +63,12 @@ class OpenAIRerankerClient(CrossEncoderClient):
             self.client = client
 
     async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
+        # Use mock data in local mode to avoid API calls
+        if LOCAL_MODE:
+            logger.debug("Using mock reranker in local mode")
+            # Simple scoring: first passage gets highest score
+            return [(passage, 1.0 - i * 0.1) for i, passage in enumerate(passages)]
+        
         openai_messages_list: Any = [
             [
                 Message(

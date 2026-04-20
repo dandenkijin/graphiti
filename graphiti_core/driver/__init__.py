@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from neo4j import Neo4jDriver
-
-__all__ = ['Neo4jDriver']
+# Conditional import for Neo4j to avoid dependency issues
+try:
+    from neo4j import Neo4jDriver
+    __all__ = ['Neo4jDriver']
+except ImportError:
+    Neo4jDriver = None
+    __all__ = []

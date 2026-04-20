@@ -30,6 +30,16 @@ class OpenAIEmbedderConfig(EmbedderConfig):
     embedding_model: EmbeddingModel | str = DEFAULT_EMBEDDING_MODEL
     api_key: str | None = None
     base_url: str | None = None
+    
+    def __init__(self, **kwargs):
+        # Load environment variables first, then allow kwargs to override
+        env_vars = {
+            'api_key': os.getenv('OPENAI_API_KEY'),
+            'base_url': os.getenv('OPENAI_BASE_URL')
+        }
+        # Merge with explicit kwargs (kwargs take precedence)
+        merged_vars = {**env_vars, **kwargs}
+        super().__init__(**merged_vars)
 
 
 class OpenAIEmbedder(EmbedderClient):
@@ -56,8 +66,8 @@ class OpenAIEmbedder(EmbedderClient):
     async def create(
         self, input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]]
     ) -> list[float]:
-        # Check if using Ollama schema via environment variable
-        if os.getenv('OLLAMA_SCHEMA', '').lower() == 'true':
+        # Check if using Ollama schema via environment variable and base_url is available
+        if os.getenv('OLLAMA_SCHEMA', '').lower() == 'true' and self.config.base_url:
             # Use Ollama's native API
             # Handle different input types - Ollama expects a string for prompt
             if isinstance(input_data, list):
@@ -72,10 +82,12 @@ class OpenAIEmbedder(EmbedderClient):
                 # Check if using Ollama schema and adjust endpoint accordingly
                 if os.getenv('OLLAMA_SCHEMA', '').lower() == 'true':
                     # Use Ollama's native API endpoint without /v1 prefix
-                    endpoint = f"{self.config.base_url.replace('/v1', '')}/api/embeddings"
+                    base_url = self.config.base_url or ''
+                    endpoint = f"{base_url.replace('/v1', '')}/api/embeddings"
                 else:
                     # Use standard OpenAI endpoint with /v1 prefix
-                    endpoint = f"{self.config.base_url}/api/embeddings"
+                    base_url = self.config.base_url or ''
+                    endpoint = f"{base_url}/api/embeddings"
                 
                 response = await client.post(
                     endpoint,
@@ -95,8 +107,8 @@ class OpenAIEmbedder(EmbedderClient):
             return result.data[0].embedding[: self.config.embedding_dim]
 
     async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
-        # Check if using Ollama schema via environment variable
-        if os.getenv('OLLAMA_SCHEMA', '').lower() == 'true':
+        # Check if using Ollama schema via environment variable and base_url is available
+        if os.getenv('OLLAMA_SCHEMA', '').lower() == 'true' and self.config.base_url:
             # Use Ollama's native API for each input
             embeddings = []
             async with httpx.AsyncClient() as client:

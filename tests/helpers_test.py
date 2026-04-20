@@ -37,7 +37,8 @@ if os.getenv('DISABLE_NEO4J') is None:
 
         drivers.append(GraphProvider.NEO4J)
     except ImportError:
-        raise
+        # Neo4j not available, skip adding to drivers list
+        pass
 
 if os.getenv('DISABLE_FALKORDB') is None:
     try:
@@ -45,9 +46,10 @@ if os.getenv('DISABLE_FALKORDB') is None:
 
         drivers.append(GraphProvider.FALKORDB)
     except ImportError:
-        raise
+        # FalkorDB not available, skip adding to drivers list
+        pass
 
-# Disable Neptune for now
+# Disable Neptune for now (requires AWS setup)
 os.environ['DISABLE_NEPTUNE'] = 'True'
 if os.getenv('DISABLE_NEPTUNE') is None:
     try:
@@ -55,7 +57,10 @@ if os.getenv('DISABLE_NEPTUNE') is None:
 
         drivers.append(GraphProvider.NEPTUNE)
     except ImportError:
-        raise
+        # Neptune not available, skip adding to drivers list
+        pass
+
+# Note: Kuzu support has been deprecated. Use LadybugDB instead.
 
 NEO4J_URI = os.getenv('NEO4J_URI', 'bolt://localhost:7687')
 NEO4J_USER = os.getenv('NEO4J_USER', 'neo4j')
