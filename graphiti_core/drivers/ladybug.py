@@ -94,17 +94,23 @@ class LadybugDriver(GraphDriver):
                 # Create required indexes for search functionality
                 index_queries = [
                     # FTS indexes for full text search using LadybugDB's CREATE_FTS_INDEX function
-                    "CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact', ['name', 'fact']);",
-                    "CALL CREATE_FTS_INDEX('Entity', 'entity_name_fts', ['name']);",
-                    "CALL CREATE_FTS_INDEX('Episodic', 'episodic_content_fts', ['content', 'name']);",
+                    ("CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact', ['name', 'fact']);", 'edge_name_and_fact'),
+                    ("CALL CREATE_FTS_INDEX('Entity', 'entity_name_fts', ['name']);", 'entity_name_fts'),
+                    ("CALL CREATE_FTS_INDEX('Episodic', 'episodic_content_fts', ['content', 'name']);", 'episodic_content_fts'),
                 ]
                 
-                for query in index_queries:
+                for query, index_name in index_queries:
                     try:
                         conn.execute(query)
+                        logger.info(f"Created index: {index_name}")
                     except Exception as e:
-                        # Index might already exist or have issues
-                        print(f"Warning: Failed to create index: {e}")
+                        # Check if index already exists (common case)
+                        error_msg = str(e).lower()
+                        if any(keyword in error_msg for keyword in ['already exists', 'duplicate', 'exists']):
+                            logger.debug(f"Index {index_name} already exists, skipping")
+                        else:
+                            # Log unexpected errors but don't fail schema setup
+                            logger.warning(f"Failed to create index {index_name}: {e}")
             except Exception as e:
                 logger.error(f"Schema setup failed: {e}")
                 raise
