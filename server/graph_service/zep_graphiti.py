@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Try to import LadybugDriver if ladybug extra is installed
 try:
-    from graphiti_core.drivers.ladybug import LadybugDriver
+    from graphiti_core.driver.ladybug_driver import LadybugDriver
 except ImportError:
     LadybugDriver = None
 

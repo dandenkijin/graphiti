@@ -15,6 +15,11 @@ limitations under the License.
 """
 
 from .client import CrossEncoderClient
-from .openai_reranker_client import OpenAIRerankerClient
 
-__all__ = ['CrossEncoderClient', 'OpenAIRerankerClient']
+# Conditional import for OpenAI reranker to avoid timeout
+try:
+    from .openai_reranker_client import OpenAIRerankerClient
+    __all__ = ['CrossEncoderClient', 'OpenAIRerankerClient']
+except ImportError:
+    OpenAIRerankerClient = None
+    __all__ = ['CrossEncoderClient']
