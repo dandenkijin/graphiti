@@ -79,26 +79,20 @@ class OpenAIEmbedder(EmbedderClient):
                 prompt = str(input_data)
             
             async with httpx.AsyncClient() as client:
-                # Check if using Ollama schema and adjust endpoint accordingly
-                if os.getenv('OLLAMA_SCHEMA', '').lower() == 'true':
-                    # Use Ollama's native API endpoint without /v1 prefix
-                    base_url = self.config.base_url or ''
-                    endpoint = f"{base_url.replace('/v1', '')}/api/embeddings"
-                else:
-                    # Use standard OpenAI endpoint with /v1 prefix
-                    base_url = self.config.base_url or ''
-                    endpoint = f"{base_url}/api/embeddings"
+                # Use Ollama's proper API endpoint: /api/embed
+                base_url = self.config.base_url.replace('/v1', '') if self.config.base_url else ''
+                endpoint = f"{base_url}/api/embed"
                 
                 response = await client.post(
                     endpoint,
                     json={
                         "model": self.config.embedding_model,
-                        "prompt": prompt
+                        "input": prompt  # Ollama uses "input" not "prompt"
                     }
                 )
                 response.raise_for_status()
                 result = response.json()
-                return result["embedding"][: self.config.embedding_dim]
+                return result["embeddings"][0][: self.config.embedding_dim]
         else:
             # Use standard OpenAI API
             result = await self.client.embeddings.create(
@@ -113,16 +107,19 @@ class OpenAIEmbedder(EmbedderClient):
             embeddings = []
             async with httpx.AsyncClient() as client:
                 for input_data in input_data_list:
+                    base_url = self.config.base_url.replace('/v1', '') if self.config.base_url else ''
+                    endpoint = f"{base_url}/api/embed"
+                    
                     response = await client.post(
-                        f"{self.config.base_url}/api/embeddings",
+                        endpoint,
                         json={
                             "model": self.config.embedding_model,
-                            "prompt": input_data
+                            "input": input_data  # Ollama uses "input" not "prompt"
                         }
                     )
                     response.raise_for_status()
                     result = response.json()
-                    embeddings.append(result["embedding"][: self.config.embedding_dim])
+                    embeddings.append(result["embeddings"][0][: self.config.embedding_dim])
             return embeddings
         else:
             # Use standard OpenAI API

@@ -46,7 +46,7 @@ def test_local_embedder():
         print(f"Ollama service test: {response.status_code}")
         if response.status_code != 200:
             print(f"Error response: {response.text}")
-            return False
+            assert False
         
         models = response.json()
         available_models = [model['name'] for model in models.get('models', [])]
@@ -56,7 +56,7 @@ def test_local_embedder():
         embedding_available = any(embedding_model in model for model in available_models)
         if not embedding_available:
             print(f"Embedding model '{embedding_model}' not found in available models")
-            return False
+            assert False
         
         print(f"Testing embedding with model: {embedding_model}")
         
@@ -77,17 +77,17 @@ def test_local_embedder():
             if embedding:
                 print(f"Embedding successful - dimension: {len(embedding)}")
                 print(f"Sample embedding values: {embedding[:5]}...")
-                return True
+                assert True
             else:
                 print("Embedding response missing embedding data")
-                return False
+                assert False
         else:
             print(f"Embedding request failed: {embed_response.text}")
-            return False
+            assert False
             
     except Exception as e:
         print(f"Embedder test failed: {e}")
-        return False
+        assert False
     finally:
         # Always cleanup the model to prevent CPU spinning
         print("Cleaning up embedding model...")

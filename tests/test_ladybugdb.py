@@ -35,10 +35,10 @@ def test_health():
         )
         if result.returncode == 0:
             print(f"Health check: PASS - {result.stdout.strip()}")
-            return True
+            assert True
         else:
             print(f"Health check: FAIL - {result.stderr}")
-            return False
+            assert False
     except Exception as e:
         print(f"Health check failed: {e}")
         return False
@@ -53,10 +53,10 @@ def test_openapi():
         )
         if result.returncode == 0 and result.stdout.strip():
             print(f"OpenAPI spec: PASS")
-            return True
+            assert True
         else:
             print(f"OpenAPI test: FAIL - {result.stderr}")
-            return False
+            assert False
     except Exception as e:
         print(f"OpenAPI test failed: {e}")
         return False
@@ -73,10 +73,10 @@ def test_database_connection():
         )
         if result.returncode == 0 and "healthy" in result.stdout.lower():
             print(f"Database connection: PASS - Application has working database connection")
-            return True
+            assert True
         else:
             print(f"Database connection: FAIL - Health check failed: {result.stderr}")
-            return False
+            assert False
     except Exception as e:
         print(f"Database connection test failed: {e}")
         return False
@@ -99,25 +99,25 @@ def test_search():
                 response_data = json.loads(result.stdout)
                 if isinstance(response_data, dict) and 'facts' in response_data:
                     print(f"Search request: PASS - Got valid response: {result.stdout.strip()}")
-                    return True
+                    assert True
                 else:
                     print(f"Search request: FAIL - Invalid response format")
-                    return False
+                    assert False
             except json.JSONDecodeError:
                 print(f"Search request: FAIL - Invalid JSON response")
-                return False
+                assert False
         else:
             print(f"Search test: FAIL - {result.stderr}")
-            return False
+            assert False
     except Exception as e:
         print(f"Search test failed: {e}")
-        return False
+        assert False
 
 def test_messages():
     """Test messages endpoint for data ingestion - SKIP due to LLM dependency"""
     print(f"Messages test: SKIP - Messages endpoint triggers LLM entity extraction which causes timeouts")
     print("Note: This endpoint requires LLM processing for entity extraction")
-    return True  # Skip but count as pass for test suite
+    assert True  # Skip but count as pass for test suite
 
 def test_data_persistence():
     """Test data persistence by checking database file"""
@@ -132,16 +132,16 @@ def test_data_persistence():
             if "graph.db" in output:
                 print(f"Data persistence: PASS - Database files exist")
                 print(f"Files: {output}")
-                return True
+                assert True
             else:
                 print(f"Data persistence: FAIL - Database file not found")
-                return False
+                assert False
         else:
             print(f"Data persistence: FAIL - {result.stderr}")
-            return False
+            assert False
     except Exception as e:
         print(f"Data persistence test failed: {e}")
-        return False
+        assert False
 
 def test_thread_monitoring():
     """Test thread monitoring endpoint"""
@@ -164,19 +164,22 @@ def test_thread_monitoring():
                 # Check if thread count is reasonable (should be <= 10 for our optimized setup)
                 if total_threads <= 10:
                     print("Thread count is within expected range")
-                    return True
+                    assert True
                 else:
                     print(f"WARNING: High thread count detected: {total_threads}")
-                    return True  # Still pass, but warn
+                    assert True
             except json.JSONDecodeError:
                 print(f"Thread monitoring: FAIL - Invalid JSON response")
-                return False
+                assert False
+            except Exception as e:
+                print(f"Thread monitoring test failed: {e}")
+                assert False
         else:
             print(f"Thread monitoring: FAIL - {result.stderr}")
-            return False
+            assert False
     except Exception as e:
         print(f"Thread monitoring test failed: {e}")
-        return False
+        assert False
 
 def check_ollama_ready():
     """Check if Ollama is ready and model is loaded"""
