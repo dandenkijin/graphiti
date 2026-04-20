@@ -1,0 +1,11 @@
+# Implemented RFCs
+
+This directory contains RFCs that have been approved and implemented.
+
+Each implemented RFC includes:
+- Final approved design
+- Implementation notes
+- Migration guide (if applicable)
+- Links to related PRs
+
+Files follow the same naming convention as active RFCs: `rfc-XXX-issue-title.md`

@@ -1,0 +1,11 @@
+# Active RFCs
+
+This directory contains RFCs currently under discussion and review.
+
+Active RFCs are named using the format: `rfc-XXX-issue-title.md`
+
+Where:
+- `XXX` is the GitHub issue number
+- `issue-title` is a kebab-cased version of the issue title
+
+Example: `rfc-123-add-postgresql-driver.md`
