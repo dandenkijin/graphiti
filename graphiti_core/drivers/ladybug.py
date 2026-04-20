@@ -7,6 +7,7 @@ as an alternative to other graph databases like Neo4j or FalkorDB.
 
 import logging
 from typing import TYPE_CHECKING
+from contextlib import contextmanager
 
 from ..driver.driver import GraphDriver, GraphDriverSession, GraphProvider
 
@@ -35,54 +36,78 @@ class LadybugDriver(GraphDriver):
         # Use real_ladybug instead of other graph databases
         self.db = real_ladybug.Database(db)
         
+        # Connection pooling to reduce connection creation overhead
+        self._connection_pool = []
+        self._max_pool_size = 5
+        
         # Setup schema using LadybugDB
         self.setup_schema()
         
-        self.client = real_ladybug.AsyncConnection(self.db, max_concurrent_queries=max_concurrent_queries)
+        # Remove AsyncConnection to eliminate thread leak - use sync connections only
+        # self.client = real_ladybug.AsyncConnection(self.db, max_concurrent_queries=limited_concurrent)
+        self.client = None  # Not used in our simplified implementation
         
         # Add _database attribute for compatibility with ingest router
         self._database = self.db
     
+    @contextmanager
+    def get_connection(self):
+        """Get a database connection from pool or create new one"""
+        if self._connection_pool:
+            conn = self._connection_pool.pop()
+        else:
+            conn = real_ladybug.Connection(self.db)
+        
+        try:
+            yield conn
+        finally:
+            # Return connection to pool if not full
+            if len(self._connection_pool) < self._max_pool_size:
+                self._connection_pool.append(conn)
+            else:
+                conn.close()
+    
     def setup_schema(self):
         """Setup schema using LadybugDB connection"""
-        conn = real_ladybug.Connection(self.db)
-        try:
-            # Install and load FTS extension for full text search
+        with self.get_connection() as conn:
             try:
-                conn.execute("INSTALL FTS")
-                conn.execute("LOAD EXTENSION FTS")
-            except Exception:
-                # Extension might already be installed
-                pass
-            
-            # Basic schema setup - simplified version
-            schema_queries = [
-                "CREATE NODE TABLE IF NOT EXISTS Episodic(uuid STRING PRIMARY KEY, name STRING, group_id STRING, created_at TIMESTAMP, source STRING, source_description STRING, content STRING, valid_at TIMESTAMP, entity_edges STRING[])",
-                "CREATE NODE TABLE IF NOT EXISTS Entity(uuid STRING PRIMARY KEY, name STRING, group_id STRING, labels STRING[], created_at TIMESTAMP, name_embedding FLOAT[], summary STRING, attributes STRING)",
-                "CREATE NODE TABLE IF NOT EXISTS Community(uuid STRING PRIMARY KEY, name STRING, group_id STRING, created_at TIMESTAMP, name_embedding FLOAT[], summary STRING)",
-                "CREATE NODE TABLE IF NOT EXISTS RelatesToNode_(uuid STRING PRIMARY KEY, group_id STRING, created_at TIMESTAMP, name STRING, fact STRING, fact_embedding FLOAT[], episodes STRING[], expired_at TIMESTAMP, valid_at TIMESTAMP, invalid_at TIMESTAMP, attributes STRING)",
-                "CREATE REL TABLE IF NOT EXISTS RELATES_TO(FROM Entity TO RelatesToNode_, FROM RelatesToNode_ TO Entity)"
-            ]
-            
-            for query in schema_queries:
-                conn.execute(query)
-            
-            # Create required indexes for search functionality
-            index_queries = [
-                # FTS indexes for full text search using LadybugDB's CREATE_FTS_INDEX function
-                "CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact', ['name', 'fact']);",
-                "CALL CREATE_FTS_INDEX('Entity', 'entity_name_fts', ['name']);",
-                "CALL CREATE_FTS_INDEX('Episodic', 'episodic_content_fts', ['content', 'name']);",
-            ]
-            
-            for query in index_queries:
+                # Install and load FTS extension for full text search
                 try:
+                    conn.execute("INSTALL FTS")
+                    conn.execute("LOAD EXTENSION FTS")
+                except Exception:
+                    # Extension might already be installed
+                    pass
+                
+                # Basic schema setup - simplified version
+                schema_queries = [
+                    "CREATE NODE TABLE IF NOT EXISTS Episodic(uuid STRING PRIMARY KEY, name STRING, group_id STRING, created_at TIMESTAMP, source STRING, source_description STRING, content STRING, valid_at TIMESTAMP, entity_edges STRING[])",
+                    "CREATE NODE TABLE IF NOT EXISTS Entity(uuid STRING PRIMARY KEY, name STRING, group_id STRING, labels STRING[], created_at TIMESTAMP, name_embedding FLOAT[], summary STRING, attributes STRING)",
+                    "CREATE NODE TABLE IF NOT EXISTS Community(uuid STRING PRIMARY KEY, name STRING, group_id STRING, created_at TIMESTAMP, name_embedding FLOAT[], summary STRING)",
+                    "CREATE NODE TABLE IF NOT EXISTS RelatesToNode_(uuid STRING PRIMARY KEY, group_id STRING, created_at TIMESTAMP, name STRING, fact STRING, fact_embedding FLOAT[], episodes STRING[], expired_at TIMESTAMP, valid_at TIMESTAMP, invalid_at TIMESTAMP, attributes STRING)",
+                    "CREATE REL TABLE IF NOT EXISTS RELATES_TO(FROM Entity TO RelatesToNode_, FROM RelatesToNode_ TO Entity)"
+                ]
+                
+                for query in schema_queries:
                     conn.execute(query)
-                except Exception as e:
-                    # Index might already exist or have issues
-                    print(f"Warning: Failed to create index: {e}")
-        finally:
-            conn.close()
+                
+                # Create required indexes for search functionality
+                index_queries = [
+                    # FTS indexes for full text search using LadybugDB's CREATE_FTS_INDEX function
+                    "CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact', ['name', 'fact']);",
+                    "CALL CREATE_FTS_INDEX('Entity', 'entity_name_fts', ['name']);",
+                    "CALL CREATE_FTS_INDEX('Episodic', 'episodic_content_fts', ['content', 'name']);",
+                ]
+                
+                for query in index_queries:
+                    try:
+                        conn.execute(query)
+                    except Exception as e:
+                        # Index might already exist or have issues
+                        print(f"Warning: Failed to create index: {e}")
+            except Exception as e:
+                logger.error(f"Schema setup failed: {e}")
+                raise
     
     def session(self, _database: str | None = None) -> GraphDriverSession:
         return LadybugDriverSession(self)
@@ -103,8 +128,7 @@ class LadybugDriver(GraphDriver):
     
     async def execute_query(self, *args, **kwargs):
         """Execute a query using LadybugDB"""
-        conn = real_ladybug.Connection(self.db)
-        try:
+        with self.get_connection() as conn:
             # Handle variable arguments for compatibility with search code
             if args:
                 # First argument is the query string
@@ -125,8 +149,6 @@ class LadybugDriver(GraphDriver):
                 else:
                     raise ValueError("No query provided")
             return result, None, None
-        finally:
-            conn.close()
 
 
 class LadybugDriverSession(GraphDriverSession):
@@ -143,8 +165,7 @@ class LadybugDriverSession(GraphDriverSession):
     
     async def execute_query(self, *args, **kwargs):
         """Execute a query using LadybugDB"""
-        conn = real_ladybug.Connection(self.driver.db)
-        try:
+        with self.driver.get_connection() as conn:
             # Handle variable arguments for compatibility with search code
             if args:
                 # First argument is the query string
@@ -165,20 +186,15 @@ class LadybugDriverSession(GraphDriverSession):
                 else:
                     raise ValueError("No query provided")
             return result, None, None
-        finally:
-            conn.close()
     
     async def execute_transaction(self, queries: list[tuple[str, dict | None]]):
         """Execute multiple queries in a transaction"""
-        conn = real_ladybug.Connection(self.driver.db)
-        try:
+        with self.driver.get_connection() as conn:
             results = []
             for query, params in queries:
                 result = conn.execute(query, params or {})
                 results.append(result)
             return results
-        finally:
-            conn.close()
     
     async def close(self):
         # LadybugDB doesn't require explicit closing

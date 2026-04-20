@@ -14,25 +14,66 @@ class AsyncWorker:
     def __init__(self):
         self.queue = asyncio.Queue()
         self.task = None
+        self._shutdown_event = asyncio.Event()
 
     async def worker(self):
-        while True:
+        while not self._shutdown_event.is_set():
             try:
-                print(f'Got a job: (size of remaining queue: {self.queue.qsize()})')
-                job = await self.queue.get()
-                await job()
+                # Use wait_for to prevent hanging indefinitely
+                job = await asyncio.wait_for(
+                    self.queue.get(), 
+                    timeout=1.0  # Check shutdown event every second
+                )
+                try:
+                    print(f'Got a job: (size of remaining queue: {self.queue.qsize()})')
+                    await asyncio.wait_for(job(), timeout=30.0)  # 30 second timeout per job
+                except asyncio.TimeoutError:
+                    print(f'Job timed out, skipping')
+                except Exception as e:
+                    print(f'Job failed with error: {e}')
+                finally:
+                    self.queue.task_done()
+            except asyncio.TimeoutError:
+                # Timeout is expected for shutdown checking
+                continue
             except asyncio.CancelledError:
+                print('Worker task cancelled')
                 break
+            except Exception as e:
+                print(f'Worker error: {e}')
+                continue
 
     async def start(self):
-        self.task = asyncio.create_task(self.worker())
+        if self.task is None or self.task.done():
+            self._shutdown_event.clear()
+            self.task = asyncio.create_task(self.worker())
 
     async def stop(self):
-        if self.task:
-            self.task.cancel()
-            await self.task
-        while not self.queue.empty():
-            self.queue.get_nowait()
+        """Graceful shutdown with timeout"""
+        if self.task and not self.task.done():
+            print('Stopping AsyncWorker...')
+            self._shutdown_event.set()
+            
+            # Cancel the task if it doesn't finish gracefully
+            try:
+                await asyncio.wait_for(self.task, timeout=5.0)
+            except asyncio.TimeoutError:
+                print('Worker did not shutdown gracefully, cancelling...')
+                self.task.cancel()
+                try:
+                    await self.task
+                except asyncio.CancelledError:
+                    print('Worker task cancelled successfully')
+            
+            # Clear remaining queue items
+            while not self.queue.empty():
+                try:
+                    self.queue.get_nowait()
+                    self.queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
+            
+            print('AsyncWorker stopped')
 
 
 async_worker = AsyncWorker()

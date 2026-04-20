@@ -27,3 +27,33 @@ app.include_router(ingest.router)
 @app.get('/healthcheck')
 async def healthcheck():
     return JSONResponse(content={'status': 'healthy'}, status_code=200)
+
+
+@app.get('/threads')
+async def thread_monitor():
+    """Monitor thread usage for debugging thread leaks"""
+    import threading
+    import os
+    try:
+        # Get current thread count
+        thread_count = threading.active_count()
+        
+        # Get process ID and thread list
+        pid = os.getpid()
+        threads = threading.enumerate()
+        
+        # Count threads by name pattern
+        uvicorn_threads = sum(1 for t in threads if 'uvicorn' in t.name.lower())
+        worker_threads = sum(1 for t in threads if 'worker' in t.name.lower())
+        async_threads = sum(1 for t in threads if 'asyncio' in t.name.lower() or 'threadpool' in t.name.lower())
+        
+        return JSONResponse(content={
+            'pid': pid,
+            'total_threads': thread_count,
+            'uvicorn_threads': uvicorn_threads,
+            'worker_threads': worker_threads,
+            'async_threads': async_threads,
+            'thread_names': [t.name for t in threads[:10]]  # First 10 thread names
+        }, status_code=200)
+    except Exception as e:
+        return JSONResponse(content={'error': str(e)}, status_code=500)
