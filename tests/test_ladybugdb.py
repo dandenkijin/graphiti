@@ -114,10 +114,61 @@ def test_search():
         return False
 
 def test_messages():
-    """Test messages endpoint for data ingestion - SKIP due to LLM dependency"""
-    print(f"Messages test: SKIP - Messages endpoint triggers LLM entity extraction which causes timeouts")
-    print("Note: This endpoint requires LLM processing for entity extraction")
-    return True  # Skip but count as pass for test suite
+    """Test messages endpoint for data ingestion"""
+    try:
+        import subprocess
+        print(f"Messages test: Testing message queue functionality...")
+        
+        # Test message queue endpoint
+        message_data = '{"group_id": "test-group", "messages": [{"content": "test message", "role_type": "user", "role": "test-user", "timestamp": "2026-04-20T17:00:00Z"}]}'
+        
+        # Use direct curl with JSON data
+        try:
+            result = subprocess.run(
+                ["docker-compose", "-f", "docker/docker-compose.ladybugdb.yml", "exec", "ladybugdb-graphiti", "curl", "-s", "-X", "POST", 
+                 "-H", "Content-Type: application/json", 
+                 "-d", message_data, 
+                 "http://localhost:8000/messages"],
+                capture_output=True, text=True, timeout=15
+            )
+            
+            if result.returncode == 0:
+                try:
+                    response_data = json.loads(result.stdout)
+                    if isinstance(response_data, dict) and 'success' in response_data:
+                        print(f"Messages ingestion: PASS - {result.stdout.strip()}")
+                        return True
+                    else:
+                        print(f"Messages ingestion: FAIL - Invalid response format")
+                        return False
+                except json.JSONDecodeError:
+                    print(f"Messages ingestion: FAIL - Invalid JSON response")
+                    return False
+            else:
+                print(f"Messages ingestion: FAIL - {result.stderr}")
+                return False
+        except Exception as e:
+            print(f"Messages ingestion test failed: {e}")
+            return False
+        
+        if result.returncode == 0:
+            try:
+                response_data = json.loads(result.stdout)
+                if isinstance(response_data, dict) and 'success' in response_data:
+                    print(f"Messages ingestion: PASS - {result.stdout.strip()}")
+                    return True
+                else:
+                    print(f"Messages ingestion: FAIL - Invalid response format")
+                    return False
+            except json.JSONDecodeError:
+                print(f"Messages ingestion: FAIL - Invalid JSON response")
+                return False
+        else:
+            print(f"Messages ingestion: FAIL - {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"Messages ingestion test failed: {e}")
+        return False
 
 def test_data_persistence():
     """Test data persistence by checking database file"""
