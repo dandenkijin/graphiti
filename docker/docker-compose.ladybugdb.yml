@@ -22,8 +22,9 @@ services:
       - OLLAMA_SCHEMA=${OLLAMA_SCHEMA:-true}  # Ollama schema flag
       - PORT=8000
       - PYTHONUNBUFFERED=1
+      - UV_NO_CACHE=1  # Disable uv cache completely to avoid permission issues
     volumes:
-      - ladybugdb_data:/data  # Persist LadybugDB data
+      - ladybugdb_data:/data  # Use Docker volume to avoid permission issues
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthcheck')"]
@@ -39,3 +40,4 @@ secrets:
 volumes:
   ladybugdb_data:
     driver: local
+
