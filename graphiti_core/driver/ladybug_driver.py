@@ -51,15 +51,11 @@ class LadybugDriver(GraphDriver):
         self._connection_pool = []
         self._max_pool_size = 5
         
-        # Setup schema using LadybugDB
-        self.setup_schema()
-        
-        # Remove AsyncConnection to eliminate thread leak - use sync connections only
-        # self.client = real_ladybug.AsyncConnection(self.db, max_concurrent_queries=limited_concurrent)
-        self.client = None  # Not used in our simplified implementation
-        
         # Add _database attribute for compatibility with ingest router
         self._database = self.db
+        
+        # Setup schema using LadybugDB
+        self.setup_schema()
         
         # Initialize LadybugDB-specific search interface
         if LadybugSearchInterface is not None:
@@ -104,7 +100,6 @@ class LadybugDriver(GraphDriver):
         
         return await self.embeddings.create_batch_embeddings(texts)
     
-        
     @contextmanager
     def get_connection(self):
         """Get a database connection from pool or create new one"""
@@ -164,15 +159,18 @@ class LadybugDriver(GraphDriver):
                 
                 # Create required indexes for search functionality
                 index_queries = [
-                    # HNSW vector indexes for native semantic similarity search
-                    ("CALL CREATE_VECTOR_INDEX('Entity', 'entity_name_embedding_hnsw', 'name_embedding', metric := 'cosine');", 'entity_name_embedding_hnsw'),
-                    ("CALL CREATE_VECTOR_INDEX('RelatesToNode_', 'fact_embedding_hnsw', 'fact_embedding', metric := 'cosine');", 'fact_embedding_hnsw'),
-                    ("CALL CREATE_VECTOR_INDEX('Community', 'community_name_embedding_hnsw', 'name_embedding', metric := 'cosine');", 'community_name_embedding_hnsw'),
-                    
                     # BM25 indexes for full text search using LadybugDB's native BM25
                     ("CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact_bm25', ['name', 'fact']);", 'edge_name_and_fact_bm25'),
                     ("CALL CREATE_FTS_INDEX('Entity', 'entity_name_bm25', ['name']);", 'entity_name_bm25'),
                     ("CALL CREATE_FTS_INDEX('Episodic', 'episodic_content_bm25', ['content', 'name']);", 'episodic_content_bm25'),
+                ]
+                
+                # Try to create vector indexes after some data is inserted
+                # Vector indexes need actual data to understand the column type
+                vector_index_queries = [
+                    ("CALL CREATE_VECTOR_INDEX('Entity', 'entity_name_embedding_hnsw', 'name_embedding', metric := 'cosine');", 'entity_name_embedding_hnsw'),
+                    ("CALL CREATE_VECTOR_INDEX('RelatesToNode_', 'fact_embedding_hnsw', 'fact_embedding', metric := 'cosine');", 'fact_embedding_hnsw'),
+                    ("CALL CREATE_VECTOR_INDEX('Community', 'community_name_embedding_hnsw', 'name_embedding', metric := 'cosine');", 'community_name_embedding_hnsw'),
                 ]
                 
                 for query, index_name in index_queries:
@@ -187,6 +185,21 @@ class LadybugDriver(GraphDriver):
                         else:
                             # Log unexpected errors but don't fail schema setup
                             logger.warning(f"Failed to create index {index_name}: {e}")
+                
+                # Try to create vector indexes - these may fail if no embedding data exists yet
+                for query, index_name in vector_index_queries:
+                    try:
+                        conn.execute(query)
+                        logger.info(f"Created vector index: {index_name}")
+                    except Exception as e:
+                        # Vector indexes may fail if no data exists yet, that's OK
+                        error_msg = str(e).lower()
+                        if 'float/double array' in error_msg or 'vector_index only supports' in error_msg:
+                            logger.info(f"Vector index {index_name} will be created when embedding data is available")
+                        elif any(keyword in error_msg for keyword in ['already exists', 'duplicate', 'exists']):
+                            logger.debug(f"Vector index {index_name} already exists, skipping")
+                        else:
+                            logger.warning(f"Failed to create vector index {index_name}: {e}")
             except Exception as e:
                 logger.error(f"Schema setup failed: {e}")
                 raise

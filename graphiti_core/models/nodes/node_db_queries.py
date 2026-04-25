@@ -317,6 +317,17 @@ def get_community_node_save_query(provider: GraphProvider) -> str:
                     n.summary = $summary
                 RETURN n.uuid AS uuid
             """
+        case GraphProvider.LADYBUG:
+            return """
+                MERGE (n:Community {uuid: $uuid})
+                SET
+                    n.name = $name,
+                    n.group_id = $group_id,
+                    n.created_at = $created_at,
+                    n.name_embedding = $name_embedding,
+                    n.summary = $summary
+                RETURN n.uuid AS uuid
+            """
         case _:  # Neo4j
             return """
                 MERGE (n:Community {uuid: $uuid})

@@ -98,7 +98,7 @@ class LadybugEmbeddings:
             
             result = conn.execute(query, params)
             if result and len(result) > 0:
-                embedding = result[0][0]  # Extract the LIST[FLOAT] result
+                embedding = result[0][0]  # Extracts the LIST[FLOAT] result
                 return [float(x) for x in embedding]
             else:
                 raise ValueError(f"Failed to create embedding for text: {text}")

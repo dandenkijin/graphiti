@@ -149,6 +149,15 @@ def get_nodes_query(name: str, query: str, limit: int, provider: GraphProvider) 
         label = INDEX_TO_LABEL_KUZU_MAPPING[name]
         return f"CALL QUERY_FTS_INDEX('{label}', '{name}', {query}, TOP := $limit)"
 
+    if provider == GraphProvider.LADYBUG:
+        # LadybugDB uses its own FTS syntax
+        if name == 'entity_name':
+            return f"CALL QUERY_FTS_INDEX('Entity', 'entity_name_bm25', {query}, TOP := $limit)"
+        elif name == 'episodic_content':
+            return f"CALL QUERY_FTS_INDEX('Episodic', 'episodic_content_bm25', {query}, TOP := $limit)"
+        else:
+            return f"CALL QUERY_FTS_INDEX('Entity', '{name}', {query}, TOP := $limit)"
+
     return f'CALL db.index.fulltext.queryNodes("{name}", {query}, {{limit: $limit}})'
 
 
@@ -158,6 +167,10 @@ def get_vector_cosine_func_query(vec1, vec2, provider: GraphProvider) -> str:
         return f'(2 - vec.cosineDistance({vec1}, vecf32({vec2})))/2'
 
     if provider == GraphProvider.KUZU:
+        return f'array_cosine_similarity({vec1}, {vec2})'
+
+    if provider == GraphProvider.LADYBUG:
+        # LadybugDB uses array_cosine_similarity function
         return f'array_cosine_similarity({vec1}, {vec2})'
 
     return f'vector.similarity.cosine({vec1}, {vec2})'
@@ -171,5 +184,12 @@ def get_relationships_query(name: str, limit: int, provider: GraphProvider) -> s
     if provider == GraphProvider.KUZU:
         label = INDEX_TO_LABEL_KUZU_MAPPING[name]
         return f"CALL QUERY_FTS_INDEX('{label}', '{name}', cast($query AS STRING), TOP := $limit)"
+
+    if provider == GraphProvider.LADYBUG:
+        # LadybugDB uses its own FTS syntax
+        if name == 'edge_name_and_fact':
+            return f"CALL QUERY_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact_bm25', $query, TOP := $limit)"
+        else:
+            return f"CALL QUERY_FTS_INDEX('Entity', '{name}', $query, TOP := $limit)"
 
     return f'CALL db.index.fulltext.queryRelationships("{name}", $query, {{limit: $limit}})'
