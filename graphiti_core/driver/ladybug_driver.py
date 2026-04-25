@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from contextlib import contextmanager
 
 from ..driver.driver import GraphDriver, GraphDriverSession, GraphProvider
+from ..driver.search_interface.search_interface import SearchInterface
 
 # Try to import real_ladybug at runtime
 try:
@@ -17,13 +18,23 @@ try:
 except ImportError:
     real_ladybug = None
 
+# Import LadybugDB-specific components
+try:
+    from .search_interface import LadybugSearchInterface
+    from .algorithms import LadybugGraphAlgorithms
+    from .embeddings import LadybugEmbeddings
+except ImportError:
+    LadybugSearchInterface = None
+    LadybugGraphAlgorithms = None
+    LadybugEmbeddings = None
+
 logger = logging.getLogger(__name__)
 
 
 class LadybugDriver(GraphDriver):
     """Custom driver that uses LadybugDB instead of other graph databases"""
     
-    provider: GraphProvider = GraphProvider.KUZU  # Use Kuzu provider for compatibility
+    provider: GraphProvider = GraphProvider.LADYBUG  # Use native LadybugDB provider
     
     def __init__(
         self,
@@ -49,7 +60,51 @@ class LadybugDriver(GraphDriver):
         
         # Add _database attribute for compatibility with ingest router
         self._database = self.db
+        
+        # Initialize LadybugDB-specific search interface
+        if LadybugSearchInterface is not None:
+            self.search_interface = LadybugSearchInterface()
+        else:
+            self.search_interface = None
+        
+        # Initialize embeddings module
+        if LadybugEmbeddings is not None:
+            self.embeddings = LadybugEmbeddings(self)
+        else:
+            self.embeddings = None
     
+    async def create_embedding(
+        self, 
+        text: str, 
+        model: str | None = None,
+        dimensions: int = 768,
+        endpoint: str | None = None
+    ) -> list[float]:
+        """
+        Create embeddings using the provider specified by EMBEDDING_MODEL_NAME.
+        
+        Args:
+            text: Text to embed
+            model: Model name (optional, uses EMBEDDING_MODEL_NAME from env)
+            dimensions: Embedding dimensions
+            endpoint: Custom endpoint (for Ollama)
+            
+        Returns:
+            List of embedding values
+        """
+        if self.embeddings is None:
+            raise RuntimeError("Embeddings module not available")
+        
+        return await self.embeddings.create_embedding(text, model, dimensions, endpoint)
+    
+    async def create_batch_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """Create embeddings for multiple texts."""
+        if self.embeddings is None:
+            raise RuntimeError("Embeddings module not available")
+        
+        return await self.embeddings.create_batch_embeddings(texts)
+    
+        
     @contextmanager
     def get_connection(self):
         """Get a database connection from pool or create new one"""
@@ -79,6 +134,22 @@ class LadybugDriver(GraphDriver):
                     # Extension might already be installed
                     pass
                 
+                # Install and load VECTOR extension for HNSW vector search
+                try:
+                    conn.execute("INSTALL VECTOR")
+                    conn.execute("LOAD EXTENSION VECTOR")
+                except Exception:
+                    # Extension might already be installed
+                    pass
+                
+                # Install and load LLM extension for Ollama embeddings
+                try:
+                    conn.execute("INSTALL LLM")
+                    conn.execute("LOAD EXTENSION LLM")
+                except Exception:
+                    # Extension might already be installed
+                    pass
+                
                 # Basic schema setup - simplified version
                 schema_queries = [
                     "CREATE NODE TABLE IF NOT EXISTS Episodic(uuid STRING PRIMARY KEY, name STRING, group_id STRING, created_at TIMESTAMP, source STRING, source_description STRING, content STRING, valid_at TIMESTAMP, entity_edges STRING[])",
@@ -93,10 +164,15 @@ class LadybugDriver(GraphDriver):
                 
                 # Create required indexes for search functionality
                 index_queries = [
-                    # FTS indexes for full text search using LadybugDB's CREATE_FTS_INDEX function
-                    ("CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact', ['name', 'fact']);", 'edge_name_and_fact'),
-                    ("CALL CREATE_FTS_INDEX('Entity', 'entity_name_fts', ['name']);", 'entity_name_fts'),
-                    ("CALL CREATE_FTS_INDEX('Episodic', 'episodic_content_fts', ['content', 'name']);", 'episodic_content_fts'),
+                    # HNSW vector indexes for native semantic similarity search
+                    ("CALL CREATE_VECTOR_INDEX('Entity', 'entity_name_embedding_hnsw', 'name_embedding', metric := 'cosine');", 'entity_name_embedding_hnsw'),
+                    ("CALL CREATE_VECTOR_INDEX('RelatesToNode_', 'fact_embedding_hnsw', 'fact_embedding', metric := 'cosine');", 'fact_embedding_hnsw'),
+                    ("CALL CREATE_VECTOR_INDEX('Community', 'community_name_embedding_hnsw', 'name_embedding', metric := 'cosine');", 'community_name_embedding_hnsw'),
+                    
+                    # BM25 indexes for full text search using LadybugDB's native BM25
+                    ("CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact_bm25', ['name', 'fact']);", 'edge_name_and_fact_bm25'),
+                    ("CALL CREATE_FTS_INDEX('Entity', 'entity_name_bm25', ['name']);", 'entity_name_bm25'),
+                    ("CALL CREATE_FTS_INDEX('Episodic', 'episodic_content_bm25', ['content', 'name']);", 'episodic_content_bm25'),
                 ]
                 
                 for query, index_name in index_queries:
