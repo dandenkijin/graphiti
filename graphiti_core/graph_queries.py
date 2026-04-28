@@ -128,6 +128,15 @@ def get_fulltext_indices(provider: GraphProvider) -> list[LiteralString]:
             "CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact', ['name', 'fact']);",
         ]
 
+    if provider == GraphProvider.LADYBUG:
+        # LadybugDB uses its own FTS index creation syntax
+        return [
+            "CALL CREATE_FTS_INDEX('Episodic', 'episode_content_bm25', ['content', 'source', 'source_description']);",
+            "CALL CREATE_FTS_INDEX('Entity', 'entity_name_bm25', ['name', 'summary']);", 
+            "CALL CREATE_FTS_INDEX('Community', 'community_name_bm25', ['name']);",
+            "CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact_bm25', ['name', 'fact']);",
+        ]
+
     return [
         """CREATE FULLTEXT INDEX episode_content IF NOT EXISTS
         FOR (e:Episodic) ON EACH [e.content, e.source, e.source_description, e.group_id]""",
@@ -167,10 +176,6 @@ def get_vector_cosine_func_query(vec1, vec2, provider: GraphProvider) -> str:
         return f'(2 - vec.cosineDistance({vec1}, vecf32({vec2})))/2'
 
     if provider == GraphProvider.KUZU:
-        return f'array_cosine_similarity({vec1}, {vec2})'
-
-    if provider == GraphProvider.LADYBUG:
-        # LadybugDB uses array_cosine_similarity function
         return f'array_cosine_similarity({vec1}, {vec2})'
 
     return f'vector.similarity.cosine({vec1}, {vec2})'

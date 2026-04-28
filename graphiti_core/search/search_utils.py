@@ -210,14 +210,40 @@ async def edge_fulltext_search(
         MATCH (n:Entity)-[:RELATES_TO]->(e:RelatesToNode_ {uuid: node.uuid})-[:RELATES_TO]->(m:Entity)
         """
     elif driver.provider == GraphProvider.LADYBUG:
+        # LadybugDB edge fulltext search - use proper context
         match_query = """
         YIELD node, score
         MATCH (n:Entity)-[:RELATES_TO]->(e:RelatesToNode_ {uuid: node.uuid})-[:RELATES_TO]->(m:Entity)
         """
+        filter_queries, filter_params = edge_search_filter_query_constructor(
+            search_filter, driver.provider
+        )
 
-    filter_queries, filter_params = edge_search_filter_query_constructor(
-        search_filter, driver.provider
-    )
+        if group_ids is not None:
+            filter_queries.append('e.group_id IN $group_ids')
+            filter_params['group_ids'] = group_ids
+
+        filter_query = ''
+        if filter_queries:
+            filter_query = ' WHERE ' + (' AND '.join(filter_queries))
+
+        query = (
+            get_relationships_query('edge_name_and_fact', limit=limit, provider=driver.provider)
+            + match_query
+            + filter_query
+            + """
+            WITH DISTINCT e, n, m, """
+            + get_vector_cosine_func_query('e.fact_embedding', '$search_vector', driver.provider)
+            + """ AS score
+            WHERE score > $min_score
+            RETURN
+            """
+            + get_entity_edge_return_query(driver.provider)
+            + """
+            ORDER BY score DESC
+            LIMIT $limit
+            """
+        )
 
     if group_ids is not None:
         filter_queries.append('e.group_id IN $group_ids')
@@ -403,7 +429,7 @@ async def edge_similarity_search(
                     r.expired_at AS expired_at,
                     r.valid_at AS valid_at,
                     r.invalid_at AS invalid_at,
-                    properties(r) AS attributes
+                    r.attributes AS attributes
                 ORDER BY i.score DESC
                 LIMIT $limit
                     """
@@ -420,25 +446,23 @@ async def edge_similarity_search(
             return []
     else:
         if driver.provider == GraphProvider.LADYBUG:
-            # Vector similarity search temporarily disabled for LadybugDB
-            # until vector index creation is properly resolved
-            return []
-        else:
+            print("DEBUG: Entering LadybugDB vector search section")
+            # LadybugDB uses native vector search with QUERY_VECTOR_INDEX
+            # Vector index should already be created during driver setup
+            
+            # Query: vector index directly, then join with graph structure using correct LadybugDB syntax
             query = (
-                match_query
-                + filter_query
-                + """
-                WITH DISTINCT e, n, m, """
-                + get_vector_cosine_func_query('e.fact_embedding', search_vector_var, driver.provider)
-                + """ AS score
-                WHERE score > $min_score
-                RETURN
-                """
-                + get_entity_edge_return_query(driver.provider)
-                + """
-                ORDER BY score DESC
-                LIMIT $limit
-                """
+                "CALL QUERY_VECTOR_INDEX('RelatesToNode_', 'fact_embedding_hnsw', $search_vector, $limit) "
+                "YIELD node, distance "
+                "WITH node, distance "
+                "WHERE (1.0 - distance) > $min_score "
+                "MATCH (n:Entity)-[:RELATES_TO]->(e:RelatesToNode_ {uuid: node.uuid})-[:RELATES_TO]->(m:Entity) "
+            )
+            query += filter_query
+            query += (
+                "RETURN " +
+                get_entity_edge_return_query(driver.provider) +
+                " ORDER BY (1.0 - distance) DESC LIMIT $limit"
             )
 
         records, _, _ = await driver.execute_query(
