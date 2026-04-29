@@ -1,0 +1,98 @@
+# syntax=docker/dockerfile:1.9
+# Adapted from docker/Dockerfile.ladybugdb for MCP server use
+FROM dhi.io/python:3.12-debian13-dev
+
+# Inherit build arguments for labels
+ARG GRAPHITI_VERSION
+ARG BUILD_DATE
+ARG VCS_REF
+ARG MCP_SERVER_VERSION=1.0.2
+
+# OCI image annotations (LadybugDB MCP Server)
+LABEL org.opencontainers.image.title="Graphiti MCP Server (LadybugDB)"
+LABEL org.opencontainers.image.description="Model Context Protocol server for Graphiti temporal knowledge graphs with LadybugDB backend"
+LABEL org.opencontainers.image.version="${MCP_SERVER_VERSION}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.vendor="Zep AI"
+LABEL org.opencontainers.image.source="https://github.com/getzep/graphiti"
+LABEL org.opencontainers.image.documentation="https://github.com/getzep/graphiti/tree/main/mcp_server"
+LABEL io.graphiti.core.version="${GRAPHITI_VERSION}"
+LABEL io.graphiti.mcp.version="${MCP_SERVER_VERSION}"
+LABEL io.graphiti.db.backend="ladybugdb"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    gcc \
+    gzip \
+    tar \
+    adduser \
+    libgomp1 \
+    libstdc++6 \
+    libc6 \
+    libgcc-s1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv using the installer script
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
+RUN sh /uv-installer.sh && rm /uv-installer.sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Configure uv for runtime
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
+
+# Create non-root user
+RUN groupadd -r app && useradd -r -d /app/mcp -g app app
+
+# Set up the MCP server application
+WORKDIR /app/mcp
+
+# Copy MCP server files for dependency installation
+COPY ./mcp_server/pyproject.toml ./mcp_server/uv.lock ./
+COPY ./mcp_server/main.py ./mcp_server/README.md ./
+COPY ./mcp_server/src ./src
+COPY ./mcp_server/config ./config
+
+# Copy graphiti_core for ladybug support
+COPY ./graphiti_core ./graphiti_core
+COPY ./pyproject.toml ./graphiti_core/pyproject.toml
+COPY ./README.md ./graphiti_core/README.md
+
+# Install Python dependencies (exclude dev dependency group)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev && \
+    echo "Adding real_ladybug to virtual environment..." && \
+    uv pip install --upgrade real_ladybug && \
+    echo "Installing local graphiti-core with ladybug support..." && \
+    uv pip install --force-reinstall -e /app/mcp/graphiti_core
+
+# Change ownership to app user and create data directory with proper permissions
+RUN chown -R app:app /app && \
+    mkdir -p /data && \
+    chown app:app /data
+
+# Set environment variables (including LadybugDB path)
+ENV PYTHONUNBUFFERED=1 \
+    PATH="/app/mcp/.venv/bin:$PATH" \
+    LADYBUGDB_URI=/data/ladybugdb.db \
+    LADYBUGDB_DATABASE=default_db \
+    LADYBUGDB_MAX_CONCURRENT_QUERIES=1 \
+    CONFIG_PATH=/app/mcp/config/config-docker-ladybugdb.yaml
+
+# Switch to non-root user
+USER app
+
+# Set port
+ENV PORT=8000
+EXPOSE $PORT
+
+# Health check (following original LadybugDB pattern)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Use uv run for execution with limited threads to prevent thread leaks (following original pattern)
+CMD ["uv", "run", "main.py", "--config", "/app/mcp/config/config-docker-ladybugdb.yaml", "--database-provider", "ladybugdb"]

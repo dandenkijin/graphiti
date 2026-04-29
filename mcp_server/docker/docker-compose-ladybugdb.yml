@@ -1,0 +1,48 @@
+services:
+  graphiti-ladybugdb:
+    image: graphiti-mcp-ladybugdb:latest
+    build:
+      context: ..
+      dockerfile: mcp_server/docker/Dockerfile.ladybugdb
+      args:
+        GRAPHITI_VERSION: ${GRAPHITI_VERSION:-0.28.2}
+        MCP_SERVER_VERSION: ${MCP_SERVER_VERSION:-1.0.2}
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Ollama configuration (hardcoded for now)
+      - OPENAI_API_KEY=ollama
+      - OPENAI_BASE_URL=http://host.docker.internal:11434/v1
+      - EMBEDDER_PROVIDER=openai
+      - EMBEDDER_MODEL=qwen3-embedding:0.6b
+      # LadybugDB configuration
+      - LADYBUGDB_URI=${LADYBUGDB_URI:-/data/ladybugdb.db}
+      - LADYBUGDB_PASSWORD=${LADYBUGDB_PASSWORD:-}
+      - LADYBUGDB_DATABASE=${LADYBUGDB_DATABASE:-default_db}
+      - LADYBUGDB_MAX_CONCURRENT_QUERIES=${LADYBUGDB_MAX_CONCURRENT_QUERIES:-1}
+      # MCP Server configuration
+      - GRAPHITI_GROUP_ID=${GRAPHITI_GROUP_ID:-main}
+      - SEMAPHORE_LIMIT=${SEMAPHORE_LIMIT:-3}
+      - CONFIG_PATH=/app/mcp/config/config-docker-ladybugdb.yaml
+      - PATH=/root/.local/bin:${PATH}
+    volumes:
+      - ladybugdb_data:/data
+      - mcp_logs:/var/log/graphiti
+    ports:
+      - "8000:8000"  # MCP server HTTP
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  ladybugdb_data:
+    driver: local
+  mcp_logs:
+    driver: local

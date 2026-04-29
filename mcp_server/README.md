@@ -141,19 +141,26 @@ database:
       database: "neo4j"  # Optional, defaults to "neo4j"
 ```
 
-#### FalkorDB
+#### LadybugDB
 
-FalkorDB is another graph database option based on Redis:
+LadybugDB is a lightweight, file-based graph database that can run in-memory or with persistent storage:
 
 ```yaml
 database:
-  provider: "falkordb"
+  provider: "ladybugdb"
   providers:
-    falkordb:
-      uri: "redis://localhost:6379"
+    ladybugdb:
+      uri: ":memory:"  # Use ":memory:" for in-memory, or file path like "/data/ladybugdb.db"
       password: ""  # Optional
       database: "default_db"  # Optional
+      max_concurrent_queries: 1  # Optional, for performance tuning
 ```
+
+LadybugDB is ideal for:
+- Development and testing environments
+- Applications requiring lightweight graph storage
+- Embedded database scenarios
+- When you want persistent file-based storage without a separate database server
 
 ### Configuration File (config.yaml)
 
@@ -226,6 +233,13 @@ The `config.yaml` file supports environment variable expansion using `${VAR_NAME
 - `NEO4J_URI`: URI for the Neo4j database (default: `bolt://localhost:7687`)
 - `NEO4J_USER`: Neo4j username (default: `neo4j`)
 - `NEO4J_PASSWORD`: Neo4j password (default: `demodemo`)
+- `FALKORDB_URI`: URI for the FalkorDB database (default: `redis://localhost:6379`)
+- `FALKORDB_PASSWORD`: FalkorDB password (optional)
+- `FALKORDB_DATABASE`: FalkorDB database name (default: `default_db`)
+- `LADYBUGDB_URI`: URI for LadybugDB database (default: `:memory:` for in-memory, or file path like `/data/ladybugdb.db`)
+- `LADYBUGDB_PASSWORD`: LadybugDB password (optional)
+- `LADYBUGDB_DATABASE`: LadybugDB database name (default: `default_db`)
+- `LADYBUGDB_MAX_CONCURRENT_QUERIES`: LadybugDB concurrent query limit (default: `1`)
 - `OPENAI_API_KEY`: OpenAI API key (required for OpenAI LLM/embedder)
 - `ANTHROPIC_API_KEY`: Anthropic API key (for Claude models)
 - `GOOGLE_API_KEY`: Google API key (for Gemini models)
@@ -314,12 +328,39 @@ Or use the FalkorDB configuration file:
 uv run main.py --config config/config-docker-falkordb.yaml
 ```
 
+### Running with LadybugDB
+
+#### Option 1: Using Docker Compose
+
+```bash
+# This starts the MCP server with LadybugDB in a single container
+docker compose -f docker/docker-compose-ladybugdb.yml up
+```
+
+#### Option 2: Direct Execution with LadybugDB
+
+```bash
+# Set environment variables
+export LADYBUGDB_URI=":memory:"  # For in-memory database
+# Or for persistent storage:
+# export LADYBUGDB_URI="/path/to/ladybugdb.db"
+
+# Run with LadybugDB
+uv run main.py --database-provider ladybugdb
+```
+
+Or use the LadybugDB configuration file:
+
+```bash
+uv run main.py --config config/config-docker-ladybugdb.yaml
+```
+
 ### Available Command-Line Arguments
 
 - `--config`: Path to YAML configuration file (default: config.yaml)
 - `--llm-provider`: LLM provider to use (openai, anthropic, gemini, groq, azure_openai)
 - `--embedder-provider`: Embedder provider to use (openai, azure_openai, gemini, voyage)
-- `--database-provider`: Database provider to use (falkordb, neo4j) - default: falkordb
+- `--database-provider`: Database provider to use (falkordb, neo4j, ladybugdb) - default: falkordb
 - `--model`: Model name to use with the LLM client
 - `--temperature`: Temperature setting for the LLM (0.0-2.0)
 - `--transport`: Choose the transport method (http or stdio, default: http)

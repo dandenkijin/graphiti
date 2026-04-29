@@ -191,11 +191,21 @@ class FalkorDBProviderConfig(BaseModel):
     database: str = 'default_db'
 
 
+class LadybugDBProviderConfig(BaseModel):
+    """LadybugDB provider configuration."""
+
+    uri: str = ':memory:'  # Default to in-memory database
+    password: str | None = None
+    database: str = 'default_db'
+    max_concurrent_queries: int = 1
+
+
 class DatabaseProvidersConfig(BaseModel):
     """Database providers configuration."""
 
     neo4j: Neo4jProviderConfig | None = None
     falkordb: FalkorDBProviderConfig | None = None
+    ladybugdb: LadybugDBProviderConfig | None = None
 
 
 class DatabaseConfig(BaseModel):

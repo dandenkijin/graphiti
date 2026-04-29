@@ -14,6 +14,14 @@ try:
 except ImportError:
     HAS_FALKOR = False
 
+# Try to import LadybugDriver if available
+try:
+    from graphiti_core.driver.ladybug_driver import LadybugDriver  # noqa: F401
+
+    HAS_LADYBUG = True
+except ImportError:
+    HAS_LADYBUG = False
+
 # Kuzu support removed - FalkorDB is now the default
 from graphiti_core.embedder import EmbedderClient, OpenAIEmbedder
 from graphiti_core.llm_client import LLMClient, OpenAIClient
@@ -429,6 +437,37 @@ class DatabaseDriverFactory:
                     'port': port,
                     'password': password,
                     'database': falkor_config.database,
+                }
+
+            case 'ladybugdb':
+                if not HAS_LADYBUG:
+                    raise ValueError(
+                        'LadybugDB driver not available in current graphiti-core version'
+                    )
+
+                # Use LadybugDB config if provided, otherwise use defaults
+                if config.providers.ladybugdb:
+                    ladybug_config = config.providers.ladybugdb
+                else:
+                    # Create default LadybugDB configuration
+                    from config.schema import LadybugDBProviderConfig
+
+                    ladybug_config = LadybugDBProviderConfig()
+
+                # Check for environment variable overrides (for CI/CD compatibility)
+                import os
+
+                uri = os.environ.get('LADYBUGDB_URI', ladybug_config.uri)
+                password = os.environ.get('LADYBUGDB_PASSWORD', ladybug_config.password)
+                database = os.environ.get('LADYBUGDB_DATABASE', ladybug_config.database)
+                max_concurrent_queries = int(os.environ.get('LADYBUGDB_MAX_CONCURRENT_QUERIES', str(ladybug_config.max_concurrent_queries)))
+
+                return {
+                    'driver': 'ladybugdb',
+                    'db': uri,
+                    'password': password,
+                    'database': database,
+                    'max_concurrent_queries': max_concurrent_queries,
                 }
 
             case _:

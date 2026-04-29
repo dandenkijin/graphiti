@@ -18,7 +18,7 @@ from pathlib import Path
 src_path = Path(__file__).parent / 'src'
 sys.path.insert(0, str(src_path))
 
-# Import and run the original server
+# Import and run original server
 if __name__ == '__main__':
     from graphiti_mcp_server import main
 
